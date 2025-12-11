@@ -88,9 +88,11 @@ func (e *Engine) Evaluate(ctx context.Context, metrics *Metrics) ([]*Alert, erro
 				Timestamp:   metrics.Timestamp,
 				Price:       metrics.LastPrice,
 				Metadata: map[string]interface{}{
-					"vcp":             metrics.VCP,
-					"price_change_1h": metrics.PriceChange1h,
-					"volume_1h":       metrics.Volume1h,
+					"vcp":              metrics.VCP,
+					"price_change_1h":  metrics.PriceChange1h,
+					"price_change_8h":  metrics.PriceChange8h,
+					"volume_ratio_1h":  metrics.VolumeRatio1h,
+					"candle_1h_volume": metrics.Candle1h.Volume,
 				},
 			}
 
@@ -155,16 +157,16 @@ func (e *Engine) evaluateBigBull60(c *AlertCriteria, m *Metrics) bool {
 	if c.Change1dGt8h && m.PriceChange1d <= m.PriceChange8h {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
-	if c.Volume8hMin != nil && m.Volume8h < *c.Volume8hMin {
+	if c.Volume8hMin != nil && m.Candle8h.Volume < *c.Volume8hMin {
 		return false
 	}
-	if c.VolumeRatio1h8h != nil && m.Volume8h > 0 && ((*c.VolumeRatio1h8h)*m.Volume1h < m.Volume8h) {
+	if c.VolumeRatio1h8h != nil && m.VolumeRatio1h < *c.VolumeRatio1h8h {
 		return false
 	}
-	if c.VolumeRatio1h1d != nil && m.Volume24h > 0 && ((*c.VolumeRatio1h1d)*m.Volume1h < m.Volume24h) {
+	if c.VolumeRatio1h1d != nil && m.VolumeRatio1h < *c.VolumeRatio1h1d {
 		return false
 	}
 	return true
@@ -184,16 +186,16 @@ func (e *Engine) evaluateBigBear60(c *AlertCriteria, m *Metrics) bool {
 	if c.Change1dLt8h && m.PriceChange1d >= m.PriceChange8h {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
-	if c.Volume8hMin != nil && m.Volume8h < *c.Volume8hMin {
+	if c.Volume8hMin != nil && m.Candle8h.Volume < *c.Volume8hMin {
 		return false
 	}
-	if c.VolumeRatio1h8h != nil && m.Volume8h > 0 && ((*c.VolumeRatio1h8h)*m.Volume1h < m.Volume8h) {
+	if c.VolumeRatio1h8h != nil && m.VolumeRatio1h < *c.VolumeRatio1h8h {
 		return false
 	}
-	if c.VolumeRatio1h1d != nil && m.Volume24h > 0 && ((*c.VolumeRatio1h1d)*m.Volume1h < m.Volume24h) {
+	if c.VolumeRatio1h1d != nil && m.VolumeRatio1h < *c.VolumeRatio1h1d {
 		return false
 	}
 	return true
@@ -211,8 +213,8 @@ func (e *Engine) evaluatePioneerBull(c *AlertCriteria, m *Metrics) bool {
 		(*c.ChangeAcceleration)*m.PriceChange5m < m.PriceChange15m {
 		return false
 	}
-	if c.VolumeRatio5m15m != nil && m.Volume15m > 0 && 
-		(*c.VolumeRatio5m15m)*m.Volume5m < m.Volume15m {
+	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
+		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
 		return false
 	}
 	return true
@@ -230,8 +232,8 @@ func (e *Engine) evaluatePioneerBear(c *AlertCriteria, m *Metrics) bool {
 		(*c.ChangeAcceleration)*m.PriceChange5m > m.PriceChange15m {
 		return false
 	}
-	if c.VolumeRatio5m15m != nil && m.Volume15m > 0 && 
-		(*c.VolumeRatio5m15m)*m.Volume5m < m.Volume15m {
+	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
+		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
 		return false
 	}
 	return true
@@ -251,10 +253,10 @@ func (e *Engine) evaluate5BigBull(c *AlertCriteria, m *Metrics) bool {
 	if c.Change1hGt15m && m.PriceChange1h <= m.PriceChange15m {
 		return false
 	}
-	if c.Volume5mMin != nil && m.Volume5m < *c.Volume5mMin {
+	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
 	return e.checkVolumeRatios5m(c, m)
@@ -274,10 +276,10 @@ func (e *Engine) evaluate5BigBear(c *AlertCriteria, m *Metrics) bool {
 	if c.Change1hLt15m && m.PriceChange1h >= m.PriceChange15m {
 		return false
 	}
-	if c.Volume5mMin != nil && m.Volume5m < *c.Volume5mMin {
+	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
 	return e.checkVolumeRatios5m(c, m)
@@ -297,10 +299,10 @@ func (e *Engine) evaluate15BigBull(c *AlertCriteria, m *Metrics) bool {
 	if c.Change8hGt1hAlt && m.PriceChange8h <= m.PriceChange1h {
 		return false
 	}
-	if c.Volume15mMin != nil && m.Volume15m < *c.Volume15mMin {
+	if c.Volume15mMin != nil && m.Candle15m.Volume < *c.Volume15mMin {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
 	return e.checkVolumeRatios15m(c, m)
@@ -320,10 +322,10 @@ func (e *Engine) evaluate15BigBear(c *AlertCriteria, m *Metrics) bool {
 	if c.Change8hLt1h && m.PriceChange8h >= m.PriceChange1h {
 		return false
 	}
-	if c.Volume15mMin != nil && m.Volume15m < *c.Volume15mMin {
+	if c.Volume15mMin != nil && m.Candle15m.Volume < *c.Volume15mMin {
 		return false
 	}
-	if c.Volume1hMin != nil && m.Volume1h < *c.Volume1hMin {
+	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
 		return false
 	}
 	return e.checkVolumeRatios15m(c, m)
@@ -337,15 +339,15 @@ func (e *Engine) evaluateBottomHunter(c *AlertCriteria, m *Metrics) bool {
 	if c.Change15mMax != nil && m.PriceChange15m > *c.Change15mMax {
 		return false
 	}
-	if c.Change5mMin != nil && m.PriceChange5m < *c.Change5mMin {
+	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
 		return false
 	}
-	if c.VolumeRatio5m15m != nil && m.Volume15m > 0 && 
-		(*c.VolumeRatio5m15m)*m.Volume5m < m.Volume15m {
+	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
+		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
 		return false
 	}
-	if c.VolumeRatio5m1h != nil && m.Volume1h > 0 && 
-		(*c.VolumeRatio5m1h)*m.Volume5m < m.Volume1h {
+	if c.VolumeRatio5m1h != nil && m.Candle1h.Volume > 0 && 
+		(*c.VolumeRatio5m1h)*m.Candle5m.Volume < m.Candle1h.Volume {
 		return false
 	}
 	return true
@@ -362,12 +364,12 @@ func (e *Engine) evaluateTopHunter(c *AlertCriteria, m *Metrics) bool {
 	if c.Change5mMax != nil && m.PriceChange5m > *c.Change5mMax {
 		return false
 	}
-	if c.VolumeRatio5m15m != nil && m.Volume15m > 0 && 
-		(*c.VolumeRatio5m15m)*m.Volume5m < m.Volume15m {
+	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
+		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
 		return false
 	}
-	if c.VolumeRatio5m1h != nil && m.Volume1h > 0 && 
-		(*c.VolumeRatio5m1h)*m.Volume5m < m.Volume1h {
+	if c.VolumeRatio5m1h != nil && m.Candle1h.Volume > 0 && 
+		(*c.VolumeRatio5m1h)*m.Candle5m.Volume < m.Candle1h.Volume {
 		return false
 	}
 	return true
@@ -375,28 +377,26 @@ func (e *Engine) evaluateTopHunter(c *AlertCriteria, m *Metrics) bool {
 
 // Helper functions
 func (e *Engine) checkVolumeRatios5m(c *AlertCriteria, m *Metrics) bool {
-	if c.VolumeRatio5m15m != nil && m.Volume15m > 0 && 
-		(*c.VolumeRatio5m15m)*m.Volume5m < m.Volume15m {
+	// VolumeRatio5m is already calculated as current 5m volume / previous 5m volume
+	// For 5m alerts, we just check if the ratio meets the threshold
+	if c.VolumeRatio5m15m != nil && m.VolumeRatio5m < *c.VolumeRatio5m15m {
 		return false
 	}
-	if c.VolumeRatio5m1h != nil && m.Volume1h > 0 && 
-		(*c.VolumeRatio5m1h)*m.Volume5m < m.Volume1h {
+	if c.VolumeRatio5m1h != nil && m.VolumeRatio5m < *c.VolumeRatio5m1h {
 		return false
 	}
-	if c.VolumeRatio5m8h != nil && m.Volume8h > 0 && 
-		(*c.VolumeRatio5m8h)*m.Volume5m < m.Volume8h {
+	if c.VolumeRatio5m8h != nil && m.VolumeRatio5m < *c.VolumeRatio5m8h {
 		return false
 	}
 	return true
 }
 
 func (e *Engine) checkVolumeRatios15m(c *AlertCriteria, m *Metrics) bool {
-	if c.VolumeRatio15m1h != nil && m.Volume1h > 0 && 
-		(*c.VolumeRatio15m1h)*m.Volume15m < m.Volume1h {
+	// VolumeRatio15m is already calculated as current 15m volume / previous 15m volume
+	if c.VolumeRatio15m1h != nil && m.VolumeRatio15m < *c.VolumeRatio15m1h {
 		return false
 	}
-	if c.VolumeRatio15m8h != nil && m.Volume8h > 0 && 
-		(*c.VolumeRatio15m8h)*m.Volume15m < m.Volume8h {
+	if c.VolumeRatio15m8h != nil && m.VolumeRatio15m < *c.VolumeRatio15m8h {
 		return false
 	}
 	return true
@@ -433,10 +433,12 @@ func (e *Engine) isDuplicate(ctx context.Context, symbol, ruleType string) bool 
 	return exists > 0
 }
 
-// setDeduplicationKey sets the deduplication key with 5-minute TTL
+// setDeduplicationKey sets the deduplication key with 1-minute TTL
+// This prevents duplicate processing of the same candle, but allows alerts
+// every minute as the moving window updates with new candles
 func (e *Engine) setDeduplicationKey(ctx context.Context, symbol, ruleType string) {
 	key := fmt.Sprintf("alert:%s:%s", symbol, ruleType)
-	if err := e.redis.Set(ctx, key, "1", 5*time.Minute).Err(); err != nil {
+	if err := e.redis.Set(ctx, key, "1", 1*time.Minute).Err(); err != nil {
 		e.logger.Error().Err(err).Msg("failed to set deduplication key")
 	}
 }

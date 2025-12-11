@@ -69,21 +69,43 @@ type Alert struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// Metrics represents the calculated metrics from metrics-calculator
+// TimeframeCandle represents an aggregated candle for a specific timeframe
+type TimeframeCandle struct {
+	Open   float64 `json:"open"`
+	High   float64 `json:"high"`
+	Low    float64 `json:"low"`
+	Close  float64 `json:"close"`
+	Volume float64 `json:"volume"`
+}
+
+// Metrics represents the calculated metrics from metrics-calculator with sliding window aggregation
 type Metrics struct {
-	Symbol         string    `json:"symbol"`
-	Timestamp      time.Time `json:"timestamp"`
-	LastPrice      float64   `json:"last_price"`
-	VCP            float64   `json:"vcp"`
-	PriceChange5m  float64   `json:"price_change_5m"`
-	PriceChange15m float64   `json:"price_change_15m"`
-	PriceChange1h  float64   `json:"price_change_1h"`
-	PriceChange8h  float64   `json:"price_change_8h"`
-	PriceChange1d  float64   `json:"price_change_1d"`
-	Volume5m       float64   `json:"volume_5m"`
-	Volume15m      float64   `json:"volume_15m"`
-	Volume1h       float64   `json:"volume_1h"`
-	Volume8h       float64   `json:"volume_8h"`
-	Volume24h      float64   `json:"volume_24h"`
-	RSI            float64   `json:"rsi"`
+	Symbol         string          `json:"symbol"`
+	Timestamp      time.Time       `json:"timestamp"`
+	LastPrice      float64         `json:"last_price"`
+	
+	// Aggregated candles for each timeframe
+	Candle1m       TimeframeCandle `json:"candle_1m"`
+	Candle5m       TimeframeCandle `json:"candle_5m"`
+	Candle15m      TimeframeCandle `json:"candle_15m"`
+	Candle1h       TimeframeCandle `json:"candle_1h"`
+	Candle8h       TimeframeCandle `json:"candle_8h"`
+	Candle1d       TimeframeCandle `json:"candle_1d"`
+	
+	// Price changes
+	PriceChange5m  float64         `json:"price_change_5m"`
+	PriceChange15m float64         `json:"price_change_15m"`
+	PriceChange1h  float64         `json:"price_change_1h"`
+	PriceChange8h  float64         `json:"price_change_8h"`
+	PriceChange1d  float64         `json:"price_change_1d"`
+	
+	// Volume ratios (current vs previous period)
+	VolumeRatio5m  float64         `json:"volume_ratio_5m"`
+	VolumeRatio15m float64         `json:"volume_ratio_15m"`
+	VolumeRatio1h  float64         `json:"volume_ratio_1h"`
+	VolumeRatio8h  float64         `json:"volume_ratio_8h"`
+	
+	// Technical indicators
+	VCP            float64         `json:"vcp"`
+	RSI            float64         `json:"rsi"`
 }

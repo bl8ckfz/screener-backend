@@ -9,25 +9,47 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// SymbolMetrics holds calculated metrics for a symbol
+// TimeframeCandle represents an aggregated candle for a specific timeframe
+type TimeframeCandle struct {
+	Open   float64 `json:"open"`
+	High   float64 `json:"high"`
+	Low    float64 `json:"low"`
+	Close  float64 `json:"close"`
+	Volume float64 `json:"volume"`
+}
+
+// SymbolMetrics holds calculated metrics for a symbol with multi-timeframe data
 type SymbolMetrics struct {
-	Symbol         string                    `json:"symbol"`
-	Timestamp      time.Time                 `json:"timestamp"`
-	LastPrice      float64                   `json:"last_price"`
-	VCP            float64                   `json:"vcp"`
+	Symbol         string                     `json:"symbol"`
+	Timestamp      time.Time                  `json:"timestamp"`
+	LastPrice      float64                    `json:"last_price"`
+	
+	// Aggregated candles for each timeframe (sliding window)
+	Candle1m       TimeframeCandle            `json:"candle_1m"`
+	Candle5m       TimeframeCandle            `json:"candle_5m"`
+	Candle15m      TimeframeCandle            `json:"candle_15m"`
+	Candle1h       TimeframeCandle            `json:"candle_1h"`
+	Candle8h       TimeframeCandle            `json:"candle_8h"`
+	Candle1d       TimeframeCandle            `json:"candle_1d"`
+	
+	// Price changes (calculated from aggregated candles)
+	PriceChange5m  float64                    `json:"price_change_5m"`
+	PriceChange15m float64                    `json:"price_change_15m"`
+	PriceChange1h  float64                    `json:"price_change_1h"`
+	PriceChange8h  float64                    `json:"price_change_8h"`
+	PriceChange1d  float64                    `json:"price_change_1d"`
+	
+	// Volume ratios (current vs previous period)
+	VolumeRatio5m  float64                    `json:"volume_ratio_5m"`
+	VolumeRatio15m float64                    `json:"volume_ratio_15m"`
+	VolumeRatio1h  float64                    `json:"volume_ratio_1h"`
+	VolumeRatio8h  float64                    `json:"volume_ratio_8h"`
+	
+	// Technical indicators
+	VCP            float64                    `json:"vcp"`
 	Fibonacci      indicators.FibonacciLevels `json:"fibonacci"`
-	RSI            float64                   `json:"rsi"`
-	MACD           indicators.MACD           `json:"macd"`
-	Volume24h      float64                   `json:"volume_24h"`
-	PriceChange5m  float64                   `json:"price_change_5m"`
-	PriceChange15m float64                   `json:"price_change_15m"`
-	PriceChange1h  float64                   `json:"price_change_1h"`
-	PriceChange8h  float64                   `json:"price_change_8h"`
-	PriceChange1d  float64                   `json:"price_change_1d"`
-	Volume5m       float64                   `json:"volume_5m"`
-	Volume15m      float64                   `json:"volume_15m"`
-	Volume1h       float64                   `json:"volume_1h"`
-	Volume8h       float64                   `json:"volume_8h"`
+	RSI            float64                    `json:"rsi"`
+	MACD           indicators.MACD            `json:"macd"`
 }
 
 // MetricsCalculator manages ring buffers and calculates metrics for multiple symbols
@@ -65,7 +87,7 @@ func (mc *MetricsCalculator) AddCandle(candle ringbuffer.Candle) (*SymbolMetrics
 	return mc.CalculateMetrics(candle.Symbol)
 }
 
-// CalculateMetrics calculates all metrics for a symbol
+// CalculateMetrics calculates all metrics for a symbol using sliding window aggregation
 func (mc *MetricsCalculator) CalculateMetrics(symbol string) (*SymbolMetrics, error) {
 	mc.mu.RLock()
 	buffer, exists := mc.buffers[symbol]
@@ -87,35 +109,46 @@ func (mc *MetricsCalculator) CalculateMetrics(symbol string) (*SymbolMetrics, er
 		LastPrice: latest.Close,
 	}
 	
-	// Calculate VCP (requires current candle data)
-	// Using close price as both last price and weighted average (simplified)
-	metrics.VCP = indicators.CalculateVCP(
-		latest.Close,
-		(latest.Open + latest.Close) / 2, // Simplified weighted average
-		latest.High,
-		latest.Low,
-	)
+	// Aggregate candles for each timeframe (sliding window)
+	metrics.Candle1m = mc.aggregateTimeframeCandle(buffer, 1)
+	metrics.Candle5m = mc.aggregateTimeframeCandle(buffer, 5)
+	metrics.Candle15m = mc.aggregateTimeframeCandle(buffer, 15)
+	metrics.Candle1h = mc.aggregateTimeframeCandle(buffer, 60)
+	metrics.Candle8h = mc.aggregateTimeframeCandle(buffer, 480)
+	metrics.Candle1d = mc.aggregateTimeframeCandle(buffer, 1440)
 	
-	// Calculate Fibonacci levels
-	metrics.Fibonacci = indicators.CalculateFibonacciLevels(
-		latest.High,
-		latest.Low,
-		latest.Close,
-	)
+	// Calculate VCP from 1m candle
+	if metrics.Candle1m.Close > 0 {
+		weightedAvg := (metrics.Candle1m.Open + metrics.Candle1m.Close) / 2
+		metrics.VCP = indicators.CalculateVCP(
+			metrics.Candle1m.Close,
+			weightedAvg,
+			metrics.Candle1m.High,
+			metrics.Candle1m.Low,
+		)
+	}
 	
-	// Calculate price changes for different timeframes
-	metrics.PriceChange5m = mc.calculatePriceChange(buffer, 5)
-	metrics.PriceChange15m = mc.calculatePriceChange(buffer, 15)
-	metrics.PriceChange1h = mc.calculatePriceChange(buffer, 60)
-	metrics.PriceChange8h = mc.calculatePriceChange(buffer, 480)
-	metrics.PriceChange1d = mc.calculatePriceChange(buffer, 1440)
+	// Calculate Fibonacci levels from 1d candle
+	if metrics.Candle1d.Close > 0 {
+		metrics.Fibonacci = indicators.CalculateFibonacciLevels(
+			metrics.Candle1d.High,
+			metrics.Candle1d.Low,
+			metrics.Candle1d.Close,
+		)
+	}
 	
-	// Calculate volume for different timeframes
-	metrics.Volume5m = mc.calculateVolume(buffer, 5)
-	metrics.Volume15m = mc.calculateVolume(buffer, 15)
-	metrics.Volume1h = mc.calculateVolume(buffer, 60)
-	metrics.Volume8h = mc.calculateVolume(buffer, 480)
-	metrics.Volume24h = mc.calculateVolume(buffer, 1440)
+	// Calculate price changes (% change from open to close of aggregated candle)
+	metrics.PriceChange5m = mc.calculatePriceChangeFromCandle(metrics.Candle5m)
+	metrics.PriceChange15m = mc.calculatePriceChangeFromCandle(metrics.Candle15m)
+	metrics.PriceChange1h = mc.calculatePriceChangeFromCandle(metrics.Candle1h)
+	metrics.PriceChange8h = mc.calculatePriceChangeFromCandle(metrics.Candle8h)
+	metrics.PriceChange1d = mc.calculatePriceChangeFromCandle(metrics.Candle1d)
+	
+	// Calculate volume ratios (current period vs previous period)
+	metrics.VolumeRatio5m = mc.calculateVolumeRatio(buffer, 5)
+	metrics.VolumeRatio15m = mc.calculateVolumeRatio(buffer, 15)
+	metrics.VolumeRatio1h = mc.calculateVolumeRatio(buffer, 60)
+	metrics.VolumeRatio8h = mc.calculateVolumeRatio(buffer, 480)
 	
 	// Calculate RSI if we have enough data (need at least 15 candles)
 	if buffer.Size() >= 15 {
@@ -132,44 +165,72 @@ func (mc *MetricsCalculator) CalculateMetrics(symbol string) (*SymbolMetrics, er
 	return metrics, nil
 }
 
-// calculatePriceChange calculates percentage price change over N minutes
-func (mc *MetricsCalculator) calculatePriceChange(buffer *ringbuffer.RingBuffer, minutes int) float64 {
+// aggregateTimeframeCandle aggregates last N 1-minute candles into a single timeframe candle
+func (mc *MetricsCalculator) aggregateTimeframeCandle(buffer *ringbuffer.RingBuffer, minutes int) TimeframeCandle {
 	if buffer.Size() < minutes {
-		return 0
-	}
-	
-	candles := buffer.GetLast(minutes)
-	if len(candles) < 2 {
-		return 0
-	}
-	
-	oldPrice := candles[0].Open
-	newPrice := candles[len(candles)-1].Close
-	
-	if oldPrice == 0 {
-		return 0
-	}
-	
-	return ((newPrice - oldPrice) / oldPrice) * 100
-}
-
-// calculateVolume sums volume over N minutes
-func (mc *MetricsCalculator) calculateVolume(buffer *ringbuffer.RingBuffer, minutes int) float64 {
-	if buffer.Size() < minutes {
+		// If not enough data, use what we have
 		minutes = buffer.Size()
 	}
 	
 	if minutes == 0 {
-		return 0
+		return TimeframeCandle{}
 	}
 	
 	candles := buffer.GetLast(minutes)
-	volume := 0.0
-	for _, c := range candles {
-		volume += c.QuoteVolume
+	if len(candles) == 0 {
+		return TimeframeCandle{}
 	}
 	
-	return volume
+	// Aggregate using ringbuffer's helper
+	aggregated := ringbuffer.AggregateTimeframe(candles)
+	if aggregated == nil {
+		return TimeframeCandle{}
+	}
+	
+	return TimeframeCandle{
+		Open:   aggregated.Open,
+		High:   aggregated.High,
+		Low:    aggregated.Low,
+		Close:  aggregated.Close,
+		Volume: aggregated.QuoteVolume,
+	}
+}
+
+// calculatePriceChangeFromCandle calculates percentage price change from open to close
+func (mc *MetricsCalculator) calculatePriceChangeFromCandle(candle TimeframeCandle) float64 {
+	if candle.Open == 0 {
+		return 0
+	}
+	
+	return ((candle.Close - candle.Open) / candle.Open) * 100
+}
+
+// calculateVolumeRatio calculates the ratio of current period volume to previous period volume
+func (mc *MetricsCalculator) calculateVolumeRatio(buffer *ringbuffer.RingBuffer, minutes int) float64 {
+	// Need at least 2x the period to compare
+	if buffer.Size() < minutes*2 {
+		return 0
+	}
+	
+	// Get current period volume (last N minutes)
+	currentCandles := buffer.GetLast(minutes)
+	currentVolume := 0.0
+	for _, c := range currentCandles {
+		currentVolume += c.QuoteVolume
+	}
+	
+	// Get previous period volume (N minutes before that)
+	allCandles := buffer.GetLast(minutes * 2)
+	previousVolume := 0.0
+	for i := 0; i < minutes && i < len(allCandles); i++ {
+		previousVolume += allCandles[i].QuoteVolume
+	}
+	
+	if previousVolume == 0 {
+		return 0
+	}
+	
+	return currentVolume / previousVolume
 }
 
 // extractClosePrices extracts closing prices from the last N candles
