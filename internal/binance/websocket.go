@@ -27,9 +27,6 @@ const (
 	
 	// MaxReconnectDelay is the maximum reconnection delay
 	MaxReconnectDelay = 30 * time.Second
-	
-	// PingInterval is how often to send ping messages
-	PingInterval = 30 * time.Second
 )
 
 // ConnectionManager manages WebSocket connections for multiple symbols
@@ -189,27 +186,9 @@ func (c *connection) connect() error {
 }
 
 // handleMessages processes incoming WebSocket messages
+// Note: Binance sends ping frames every 3 minutes, gorilla/websocket
+// automatically responds with pong frames, so we don't need manual ping/pong
 func (c *connection) handleMessages(ctx context.Context) error {
-	// Start ping goroutine
-	pingTicker := time.NewTicker(PingInterval)
-	defer pingTicker.Stop()
-	
-	go func() {
-		for {
-			select {
-			case <-pingTicker.C:
-				if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					c.logger.Error().Err(err).Msg("ping failed")
-					return
-				}
-			case <-c.stopCh:
-				return
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	
 	// Read messages
 	for {
 		select {
