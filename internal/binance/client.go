@@ -42,7 +42,8 @@ func NewClient(logger zerolog.Logger) *Client {
 	}
 }
 
-// GetActiveSymbols fetches all active USDT-margined perpetual futures pairs
+// GetActiveSymbols fetches active USDT-margined perpetual futures pairs
+// For development/testing, it returns only the top 50 most liquid pairs
 func (c *Client) GetActiveSymbols(ctx context.Context) ([]string, error) {
 	url := c.baseURL + ExchangeInfoEndpoint
 	
@@ -76,11 +77,42 @@ func (c *Client) GetActiveSymbols(ctx context.Context) ([]string, error) {
 			activeSymbols = append(activeSymbols, symbol.Symbol)
 		}
 	}
-	
 	c.logger.Info().
 		Int("total", len(exchangeInfo.Symbols)).
 		Int("active", len(activeSymbols)).
 		Msg("fetched exchange info")
 	
-	return activeSymbols, nil
+	// For development/testing: limit to top 50 most liquid pairs
+	// These are the most actively traded perpetual futures on Binance
+	top50 := []string{
+		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+		"ADAUSDT", "DOGEUSDT", "MATICUSDT", "DOTUSDT", "SHIBUSDT",
+		"AVAXUSDT", "LINKUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT",
+		"NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "FILUSDT",
+		"LDOUSDT", "INJUSDT", "STXUSDT", "SUIUSDT", "RNDRUSDT",
+		"ICPUSDT", "WLDUSDT", "TAOUSDT", "FETUSDT", "IMXUSDT",
+		"HBARUSDT", "GMXUSDT", "GRTUSDT", "MKRUSDT", "SANDUSDT",
+		"FTMUSDT", "AAVEUSDT", "RUNEUSDT", "TIAUSDT", "ALGOUSDT",
+		"VETUSDT", "RENDERUSDT", "ENAUSDT", "ARUSDT", "AXSUSDT",
+		"PEPEUSDT", "SEIUSDT", "PENDLEUSDT", "MANAUSDT", "FLOKIUSDT",
+	}
+	
+	// Filter activeSymbols to only include top50
+	filteredSymbols := make([]string, 0, len(top50))
+	symbolSet := make(map[string]bool)
+	for _, s := range activeSymbols {
+		symbolSet[s] = true
+	}
+	
+	for _, symbol := range top50 {
+		if symbolSet[symbol] {
+			filteredSymbols = append(filteredSymbols, symbol)
+		}
+	}
+	
+	c.logger.Info().
+		Int("filtered", len(filteredSymbols)).
+		Msg("limited to top 50 most liquid pairs for development")
+	
+	return filteredSymbols, nil
 }
