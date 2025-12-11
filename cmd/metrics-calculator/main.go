@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/bl8ckfz/crypto-screener-backend/internal/calculator"
+	"github.com/bl8ckfz/crypto-screener-backend/internal/ringbuffer"
+	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -31,14 +37,93 @@ func main() {
 		cancel()
 	}()
 
-	// TODO: Initialize ring buffers for all symbols
-	// TODO: Subscribe to NATS candles.1m.{symbol}
-	// TODO: Initialize TimescaleDB connection
-	// TODO: Start metrics calculation workers
+	// Get NATS URL from environment
+	natsURL := os.Getenv("NATS_URL")
+	if natsURL == "" {
+		natsURL = "nats://localhost:4222"
+	}
+
+	// Connect to NATS
+	log.Info().Str("url", natsURL).Msg("Connecting to NATS")
+	nc, err := messaging.NewNATSConn(messaging.Config{
+		URL:             natsURL,
+		MaxReconnects:   -1,
+		ReconnectWait:   2 * time.Second,
+		EnableJetStream: true,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to NATS")
+	}
+	defer nc.Close()
+
+	// Create JetStream context
+	js, err := messaging.NewJetStream(nc)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create JetStream context")
+	}
+
+	// Ensure METRICS stream exists
+	if err := messaging.CreateStream(js, "METRICS", []string{"metrics.>"}, 1*time.Hour); err != nil {
+		log.Fatal().Err(err).Msg("Failed to create METRICS stream")
+	}
+
+	// Initialize metrics calculator
+	calc := calculator.NewMetricsCalculator(log.Logger)
+
+	// Subscribe to all candle messages
+	log.Info().Msg("Subscribing to candles.1m.>")
+	sub, err := js.Subscribe("candles.1m.>", func(msg *nats.Msg) {
+		// Parse candle from message
+		var candle ringbuffer.Candle
+		if err := json.Unmarshal(msg.Data, &candle); err != nil {
+			log.Error().Err(err).Msg("Failed to unmarshal candle")
+			return
+		}
+
+		// Add candle and calculate metrics
+		metrics, err := calc.AddCandle(candle)
+		if err != nil {
+			log.Error().Err(err).Str("symbol", candle.Symbol).Msg("Failed to calculate metrics")
+			return
+		}
+
+		// Only publish if we have meaningful metrics (buffer has enough data)
+		if metrics == nil || calc.GetBufferSize(candle.Symbol) < 15 {
+			return
+		}
+
+		// Publish metrics to NATS
+		payload, err := json.Marshal(metrics)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal metrics")
+			return
+		}
+
+		subject := "metrics.calculated"
+		if _, err := js.Publish(subject, payload); err != nil {
+			log.Error().Err(err).Msg("Failed to publish metrics")
+			return
+		}
+
+		log.Debug().
+			Str("symbol", candle.Symbol).
+			Float64("vcp", metrics.VCP).
+			Float64("rsi", metrics.RSI).
+			Msg("Published metrics")
+	}, nats.Durable("metrics-calculator"), nats.DeliverAll())
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to subscribe to candles")
+	}
+	defer sub.Unsubscribe()
 
 	log.Info().Msg("Metrics Calculator service started")
 
 	// Wait for shutdown
 	<-ctx.Done()
+	
+	// Give time for final messages to process
+	time.Sleep(1 * time.Second)
+	
 	log.Info().Msg("Metrics Calculator service stopped")
 }
