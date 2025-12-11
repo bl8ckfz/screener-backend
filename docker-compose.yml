@@ -1,0 +1,93 @@
+services:
+  # NATS with JetStream for message queue
+  nats:
+    image: nats:2.10-alpine
+    container_name: crypto-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster connections
+    command: 
+      - "-js"
+      - "-sd"
+      - "/data"
+      - "-m"
+      - "8222"
+    volumes:
+      - nats-data:/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # TimescaleDB for time-series data
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: crypto-timescaledb
+    environment:
+      POSTGRES_DB: crypto
+      POSTGRES_USER: crypto_user
+      POSTGRES_PASSWORD: crypto_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./deployments/k8s/init-timescaledb.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crypto_user -d crypto"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for metadata (alternative to Supabase)
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto-postgres
+    environment:
+      POSTGRES_DB: crypto_metadata
+      POSTGRES_USER: crypto_user
+      POSTGRES_PASSWORD: crypto_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deployments/k8s/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crypto_user -d crypto_metadata"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for alert deduplication
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - crypto-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  crypto-network:
+    driver: bridge
+
+volumes:
+  nats-data:
+  timescale-data:
+  postgres-data:
+  redis-data:

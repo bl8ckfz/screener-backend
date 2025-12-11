@@ -1,0 +1,33 @@
+# Multi-stage build for Data Collector service
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o data-collector ./cmd/data-collector
+
+# Final stage
+FROM alpine:3.19
+
+# Install CA certificates for HTTPS
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/data-collector .
+
+# Run as non-root user
+RUN adduser -D -u 1000 appuser
+USER appuser
+
+EXPOSE 8080 9090
+
+CMD ["./data-collector"]
