@@ -33,7 +33,7 @@ type CandleBuffer struct {
 }
 ```
 
-Aggregation timeframes: 5m/15m/1h/8h/1d calculated on-demand with O(1) lookups.
+Aggregation timeframes: 5m/15m/1h/4h/8h/1d calculated on-demand with O(1) lookups.
 
 ### NATS Topic Structure
 - `candles.1m.BTCUSDT` - Raw kline data (binary or JSON)

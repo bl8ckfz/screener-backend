@@ -1,6 +1,6 @@
 # Project State Tracking
 
-**Last Updated**: December 9, 2025
+**Last Updated**: December 18, 2025
 
 This file tracks actions taken during development to avoid duplication and maintain progress visibility.
 
@@ -9,10 +9,10 @@ This file tracks actions taken during development to avoid duplication and maint
   "project": {
     "name": "crypto-screener-backend",
     "status": "in-progress",
-    "phase": "phase-1-week-2-complete",
+    "phase": "phase-2-week-4-complete",
     "start_date": "2025-12-09",
-    "current_milestone": "Database & Messaging Infrastructure Complete",
-    "last_updated": "2025-12-11"
+    "current_milestone": "Data Collector Service Complete",
+    "last_updated": "2025-12-18"
   },
   "structure": {
     "directories_created": [
@@ -41,6 +41,10 @@ This file tracks actions taken during development to avoid duplication and maint
     ],
     "files_created": [
       ".github/copilot-instructions.md",
+      "internal/binance/client.go",
+      "internal/binance/websocket.go",
+      "internal/binance/types.go",
+      "docs/PHASE2_COMPLETE.md",
       ".github/workflows/ci.yml",
       ".vscode/launch.json",
       ".vscode/settings.json",
@@ -88,10 +92,32 @@ This file tracks actions taken during development to avoid duplication and maint
   "implementation": {
     "services": {
       "data_collector": {
-        "status": "scaffolded",
+        "status": "complete",
         "main_file": "cmd/data-collector/main.go",
         "dockerfile": "deployments/docker/Dockerfile.data-collector",
-        "dependencies": ["gorilla/websocket", "nats.go", "zerolog"]
+        "dependencies": ["gorilla/websocket", "nats.go", "zerolog"],
+        "implementation": {
+          "binance_http_client": "complete",
+          "websocket_manager": "complete",
+          "connection_pooling": "complete",
+          "auto_reconnect": "complete",
+          "exponential_backoff": "complete",
+          "candle_parsing": "complete",
+          "candle_validation": "complete",
+          "nats_publishing": "complete",
+          "graceful_shutdown": "complete"
+        },
+        "tested": "2025-12-18",
+        "active_symbols": 43,
+        "features": [
+          "Connects to Binance Futures WebSocket API",
+          "Fetches active USDT perpetual futures",
+          "1 WebSocket per symbol (43 concurrent connections)",
+          "Exponential backoff reconnection (2s-30s)",
+          "Validates closed candles only (IsClosed=true)",
+          "Publishes to NATS candles.1m.{SYMBOL} topics",
+          "Structured logging with zerolog"
+        ]
       },
       "metrics_calculator": {
         "status": "scaffolded",
@@ -177,13 +203,13 @@ This file tracks actions taken during development to avoid duplication and maint
       "date": "2025-12-09",
       "action": "scaffolded_services",
   "next_steps": [
-    "Phase 2 (Weeks 3-4): Implement data-collector service with Binance WebSocket",
-    "Fetch active Binance Futures pairs from /fapi/v1/exchangeInfo",
-    "Create WebSocket client with connection pooling (200+ symbols)",
-    "Implement auto-reconnection with exponential backoff",
-    "Parse and validate kline (candle) data",
-    "Publish candles to NATS CANDLES stream",
-    "Phase 3 (Weeks 5-6): Implement metrics-calculator with ring buffers",
+    "Phase 3 (Weeks 5-6): Implement metrics-calculator service",
+    "Create ring buffer data structure for 1440 candles per symbol",
+    "Implement O(1) aggregation for 5m/15m/1h/4h/8h/1d timeframes",
+    "Port technical indicators from TypeScript: VCP, Fibonacci, RSI, MACD, Bollinger Bands",
+    "Subscribe to NATS candles.1m.{symbol} topics",
+    "Calculate metrics and persist to TimescaleDB",
+    "Publish enriched metrics to NATS METRICS stream",
     "Phase 4 (Weeks 7-8): Implement alert-engine with rule evaluation"
   ],},
     {
@@ -245,6 +271,36 @@ This file tracks actions taken during development to avoid duplication and maint
       "date": "2025-12-11",
       "action": "verified_infrastructure",
       "details": "Ran connectivity test - all databases and messaging working correctly"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "implemented_binance_http_client",
+      "details": "Built internal/binance/client.go with GetActiveSymbols() for /fapi/v1/exchangeInfo"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "implemented_websocket_manager",
+      "details": "Built internal/binance/websocket.go with connection pooling and lifecycle management"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "implemented_candle_types",
+      "details": "Built internal/binance/types.go with KlineEvent, KlineData, Candle structs and validation"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "implemented_auto_reconnect",
+      "details": "Exponential backoff (2s-30s) with max 10 attempts per connection"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "tested_data_collector",
+      "details": "Successfully connected to 43 Binance symbols and validated candle publishing to NATS"
+    },
+    {
+      "date": "2025-12-18",
+      "action": "created_phase2_documentation",
+      "details": "Created docs/PHASE2_COMPLETE.md with full implementation details"
     }
   ],},
     {
@@ -264,17 +320,19 @@ This file tracks actions taken during development to avoid duplication and maint
     "Create project directory structure (cmd/, internal/, pkg/)",
     "Setup Docker Compose for local development",
   "notes": [
-    "Phase 1, Week 1-2 COMPLETED - Infrastructure fully operational",
+    "Phase 1 (Weeks 1-2) COMPLETED - Infrastructure fully operational",
+    "Phase 2 (Weeks 3-4) COMPLETED - Data Collector service fully functional",
     "✓ All 4 services compile successfully",
     "✓ Docker Compose running: NATS, TimescaleDB, PostgreSQL, Redis",
     "✓ NATS JetStream enabled with 3 streams (CANDLES, METRICS, ALERTS)",
     "✓ TimescaleDB: 3 hypertables with 48h retention",
     "✓ PostgreSQL: 10 alert rules seeded",
     "✓ Connection packages: database and messaging ready",
-    "✓ Infrastructure connectivity test passing",
-    "Ready for Phase 2: Binance WebSocket data collector implementation",
-    "Target: 200+ Binance Futures pairs with <100ms alert latency"
-  ] "Comprehensive 1661-line ROADMAP.md provides complete implementation plan",
+    "✓ Binance WebSocket: 43 concurrent connections established",
+    "✓ Candle validation and NATS publishing working",
+    "✓ Auto-reconnect with exponential backoff implemented",
+    "Ready for Phase 3: Ring buffer and technical indicators implementation",
+    "Comprehensive 1661-line ROADMAP.md provides complete implementation plan",
     "Frontend exists separately: github.com/bl8ckfz/crypto-screener (React/TypeScript)",
     "Target: 200+ Binance Futures pairs with <100ms alert latency"
   ]

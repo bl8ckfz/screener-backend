@@ -12,7 +12,7 @@
 ### Vision
 Build a production-grade backend service that handles:
 - **Data Collection**: Real-time WebSocket streams from Binance Futures (200+ USDT pairs)
-- **Sliding Window Calculations**: 1-minute candles with O(1) metrics for 5m/15m/1h/8h/1d timeframes
+- **Sliding Window Calculations**: 1-minute candles with O(1) metrics for 5m/15m/1h/4h/8h/1d timeframes
 - **Alert Evaluation**: 10 futures alert types with complex multi-timeframe logic
 - **Data Persistence**: 48-hour configurable retention for alerts and metrics
 - **Real-time Push**: WebSocket connections to frontend clients + webhook notifications
@@ -123,7 +123,7 @@ Build a production-grade backend service that handles:
 - Subscribe to `candles.1m.{symbol}` from NATS
 - Maintain ring buffers for 1440 candles per symbol (24 hours)
 - Calculate on-the-fly:
-  - 5m/15m/1h/8h/1d aggregated candles (O(1) sliding window)
+  - 5m/15m/1h/4h/8h/1d aggregated candles (O(1) sliding window)
   - VCP (Volatility Contraction Pattern)
   - Fibonacci pivot levels
   - RSI, MACD, Bollinger Bands
@@ -650,6 +650,7 @@ ws://api-gateway.yourdomain.com/ws/alerts
     - 5m: last 5 candles
     - 15m: last 15 candles
     - 1h: last 60 candles
+    - 4h: last 240 candles
     - 8h: last 480 candles
     - 1d: last 1440 candles
   - Volume-weighted average price (VWAP)

@@ -19,7 +19,7 @@ The system consists of 4 microservices:
 
 - ✅ **200+ Trading Pairs**: Binance Futures USDT-margined contracts
 - ✅ **Real-time Processing**: 1-minute candle updates via WebSocket
-- ✅ **Sliding Windows**: O(1) aggregations for 5m/15m/1h/8h/1d timeframes
+- ✅ **Sliding Windows**: O(1) aggregations for 5m/15m/1h/4h/8h/1d timeframes
 - ✅ **10 Alert Types**: Big Bull/Bear, Pioneer, Whale, Volume, Flat patterns
 - ✅ **48-Hour Retention**: Configurable data persistence
 - ✅ **Horizontal Scaling**: Auto-scaling based on load

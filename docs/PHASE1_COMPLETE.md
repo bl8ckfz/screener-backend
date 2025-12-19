@@ -88,7 +88,7 @@ make stop-local
 
 -- metrics_calculated: Technical indicators
 -- Primary key: (time, symbol, timeframe)
--- Timeframes: 5m, 15m, 1h, 8h, 1d
+-- Timeframes: 5m, 15m, 1h, 4h, 8h, 1d
 
 -- alert_history: Triggered alerts
 -- Primary key: (triggered_at, symbol, alert_type, id)
