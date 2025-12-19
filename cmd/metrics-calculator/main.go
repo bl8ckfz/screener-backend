@@ -136,7 +136,11 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to subscribe to candles")
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Error().Err(err).Msg("Failed to unsubscribe")
+		}
+	}()
 
 	log.Info().Msg("Metrics Calculator service started")
 
