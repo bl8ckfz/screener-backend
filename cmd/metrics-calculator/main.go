@@ -10,6 +10,7 @@ import (
 
 	"github.com/bl8ckfz/crypto-screener-backend/internal/calculator"
 	"github.com/bl8ckfz/crypto-screener-backend/internal/ringbuffer"
+	"github.com/bl8ckfz/crypto-screener-backend/pkg/database"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -36,6 +37,19 @@ func main() {
 		log.Info().Msg("Shutdown signal received")
 		cancel()
 	}()
+
+	// Connect to TimescaleDB
+	timescaleURL := os.Getenv("TIMESCALEDB_URL")
+	if timescaleURL == "" {
+		timescaleURL = "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable"
+	}
+
+	log.Info().Str("url", timescaleURL).Msg("Connecting to TimescaleDB")
+	dbPool, err := database.NewPostgresPool(ctx, timescaleURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to TimescaleDB")
+	}
+	defer dbPool.Close()
 
 	// Get NATS URL from environment
 	natsURL := os.Getenv("NATS_URL")
@@ -70,6 +84,10 @@ func main() {
 	// Initialize metrics calculator
 	calc := calculator.NewMetricsCalculator(log.Logger)
 
+	// Initialize metrics persister with batch writing (batch size: 50)
+	persister := calculator.NewMetricsPersister(dbPool, log.Logger, 50)
+	defer persister.Close()
+
 	// Subscribe to all candle messages
 	log.Info().Msg("Subscribing to candles.1m.>")
 	sub, err := js.Subscribe("candles.1m.>", func(msg *nats.Msg) {
@@ -91,6 +109,9 @@ func main() {
 		if metrics == nil || calc.GetBufferSize(candle.Symbol) < 15 {
 			return
 		}
+
+		// Persist metrics to TimescaleDB (async batch write)
+		persister.Enqueue(metrics)
 
 		// Publish metrics to NATS
 		payload, err := json.Marshal(metrics)
@@ -121,9 +142,9 @@ func main() {
 
 	// Wait for shutdown
 	<-ctx.Done()
-	
+
 	// Give time for final messages to process
 	time.Sleep(1 * time.Second)
-	
+
 	log.Info().Msg("Metrics Calculator service stopped")
 }

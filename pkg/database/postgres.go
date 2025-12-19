@@ -121,6 +121,39 @@ func NewPostgres(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// NewPostgresPool creates a connection pool from a connection string
+func NewPostgresPool(ctx context.Context, connString string) (*pgxpool.Pool, error) {
+	poolConfig, err := pgxpool.ParseConfig(connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	// Set connection pool defaults
+	poolConfig.MaxConns = 25
+	poolConfig.MinConns = 5
+	poolConfig.MaxConnLifetime = time.Hour
+	poolConfig.MaxConnIdleTime = 30 * time.Minute
+	poolConfig.HealthCheckPeriod = 1 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
+	// Verify connection
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	log.Info().
+		Str("url", connString).
+		Int32("max_conns", poolConfig.MaxConns).
+		Msg("Connected to database")
+
+	return pool, nil
+}
+
 // Close gracefully closes the connection pool
 func Close(pool *pgxpool.Pool) {
 	if pool != nil {
