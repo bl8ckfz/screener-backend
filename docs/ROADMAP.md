@@ -5,6 +5,13 @@
 **Project**: Separate data collection from presentation  
 **Goal**: Scalable Go microservices running on Kubernetes for 200+ futures pairs with 1m candle sliding windows
 
+**Progress Update (Jan 16, 2026)**
+- Phase 1 (foundation) ✅
+- Phase 2 (data-collector) ✅
+- Phase 3 (metrics-calculator) ✅
+- Phase 4 (alert-engine) ✅ — alert-first focus; per-candle dedup in place
+- Next: Phase 5 (API gateway alerts REST/WS + Supabase auth), observability, deployment scaffolding
+
 ---
 
 ## Executive Summary
@@ -696,16 +703,16 @@ ws://api-gateway.yourdomain.com/ws/alerts
     ```
   
 - [ ] **Implement 10 Futures Alert Types**
-  - Big Bull 60m: Volume spike + 3%+ candle on 1h
-  - Big Bear 60m: Volume spike + 3%- candle on 1h
-  - Pioneer Bull: Early momentum on 15m (volume 1.5x avg)
-  - Pioneer Bear: Early dump on 15m
-  - Bull Whale: 3x volume spike + price support
-  - Bear Whale: 3x volume spike + price dump
-  - Bull Volume: 3 consecutive candles with 2.5x volume
-  - Bear Volume: 3 consecutive red candles with volume
-  - Flat 1m: <0.1% volatility for 10+ minutes
-  - Flat 8h: <2% range for 8 hours
+  - **Big Bull 60m**: 1h ≥1.6%, progressive 8h>1h, 1d>8h, volume ratios 1h/8h≥6, 1h/1d≥16
+  - **Big Bear 60m**: 1h ≤-1.6%, progressive 8h<1h, 1d<8h, volume ratios 1h/8h≥6, 1h/1d≥16
+  - **Pioneer Bull**: 5m≥1%, 15m≥1%, 3x acceleration, volume 5m/15m≥2 (early trend detection)
+  - **Pioneer Bear**: 5m≤-1%, 15m≤-1%, 3x acceleration, volume 5m/15m≥2 (early downtrend)
+  - **5 Big Bull**: 5m≥0.6%, progressive 15m>5m, 1h>15m, volume ratios 5m/15m≥3, 5m/1h≥6
+  - **5 Big Bear**: 5m≤-0.6%, progressive 15m<5m, 1h<15m, volume ratios 5m/15m≥3, 5m/1h≥6
+  - **15 Big Bull**: 15m≥1%, progressive 1h>15m, 8h>1h, volume ratios 15m/1h≥3, 15m/8h≥26
+  - **15 Big Bear**: 15m≤-1%, progressive 1h<15m, 8h<1h, volume ratios 15m/1h≥3, 15m/8h≥26
+  - **Bottom Hunter**: Reversal detection: 1h≤-0.7%, 15m≤-0.6%, 5m≥0.5% (bounce from lows)
+  - **Top Hunter**: Reversal detection: 1h≥0.7%, 15m≥0.6%, 5m≤-0.5% (rejection from highs)
   
 - [ ] **Deduplication Logic**
   - Redis cache with 5-minute TTL per `{symbol}:{rule_type}`

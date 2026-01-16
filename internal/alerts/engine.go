@@ -67,7 +67,7 @@ func (e *Engine) Evaluate(ctx context.Context, metrics *Metrics) ([]*Alert, erro
 
 	for ruleType, rule := range e.rules {
 		// Check deduplication first
-		if e.isDuplicate(ctx, metrics.Symbol, ruleType) {
+		if e.isDuplicate(ctx, metrics.Symbol, ruleType, metrics.Timestamp) {
 			continue
 		}
 
@@ -98,8 +98,8 @@ func (e *Engine) Evaluate(ctx context.Context, metrics *Metrics) ([]*Alert, erro
 
 			alerts = append(alerts, alert)
 
-			// Set deduplication key
-			e.setDeduplicationKey(ctx, metrics.Symbol, ruleType)
+			// Set deduplication key scoped to this candle/window
+			e.setDeduplicationKey(ctx, metrics.Symbol, ruleType, metrics.Timestamp)
 
 			e.logger.Info().
 				Str("symbol", metrics.Symbol).
@@ -423,8 +423,8 @@ func (e *Engine) extractCriteria(config map[string]interface{}) (*AlertCriteria,
 }
 
 // isDuplicate checks if alert was recently triggered
-func (e *Engine) isDuplicate(ctx context.Context, symbol, ruleType string) bool {
-	key := fmt.Sprintf("alert:%s:%s", symbol, ruleType)
+func (e *Engine) isDuplicate(ctx context.Context, symbol, ruleType string, ts time.Time) bool {
+	key := e.dedupKey(symbol, ruleType, ts)
 	exists, err := e.redis.Exists(ctx, key).Result()
 	if err != nil {
 		e.logger.Error().Err(err).Msg("redis exists check failed")
@@ -433,12 +433,16 @@ func (e *Engine) isDuplicate(ctx context.Context, symbol, ruleType string) bool 
 	return exists > 0
 }
 
-// setDeduplicationKey sets the deduplication key with 1-minute TTL
-// This prevents duplicate processing of the same candle, but allows alerts
-// every minute as the moving window updates with new candles
-func (e *Engine) setDeduplicationKey(ctx context.Context, symbol, ruleType string) {
-	key := fmt.Sprintf("alert:%s:%s", symbol, ruleType)
-	if err := e.redis.Set(ctx, key, "1", 1*time.Minute).Err(); err != nil {
+// setDeduplicationKey sets the deduplication key for a specific candle/window.
+// TTL slightly exceeds the source timeframe to filter only exact-duplicate publishes.
+func (e *Engine) setDeduplicationKey(ctx context.Context, symbol, ruleType string, ts time.Time) {
+	key := e.dedupKey(symbol, ruleType, ts)
+	if err := e.redis.Set(ctx, key, "1", 2*time.Minute).Err(); err != nil {
 		e.logger.Error().Err(err).Msg("failed to set deduplication key")
 	}
+}
+
+// dedupKey builds a per-candle deduplication key so each closed window can re-trigger naturally.
+func (e *Engine) dedupKey(symbol, ruleType string, ts time.Time) string {
+	return fmt.Sprintf("alert:%s:%s:%d", symbol, ruleType, ts.Unix())
 }

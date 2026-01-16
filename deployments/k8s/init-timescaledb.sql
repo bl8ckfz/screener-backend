@@ -69,31 +69,29 @@ SELECT add_retention_policy('metrics_calculated', INTERVAL '48 hours', if_not_ex
 
 -- Alert History (triggered alerts)
 CREATE TABLE IF NOT EXISTS alert_history (
-  id UUID DEFAULT gen_random_uuid(),
-  triggered_at TIMESTAMPTZ NOT NULL,
+  time TIMESTAMPTZ NOT NULL,
   symbol TEXT NOT NULL,
-  alert_type TEXT NOT NULL,
-  timeframe TEXT,
+  rule_type TEXT NOT NULL,
+  description TEXT,
+  price DOUBLE PRECISION NOT NULL,
+  metadata JSONB,
   
-  -- Alert context
-  price DOUBLE PRECISION,
-  volume DOUBLE PRECISION,
-  change_pct DOUBLE PRECISION,
-  metadata JSONB, -- Additional context (VCP, volume ratio, etc.)
-  
-  -- Notification tracking
-  webhook_sent BOOLEAN DEFAULT false,
-  webhook_sent_at TIMESTAMPTZ,
-  
-  PRIMARY KEY (triggered_at, symbol, alert_type, id)
+  PRIMARY KEY (time, symbol, rule_type)
 );
 
-SELECT create_hypertable('alert_history', 'triggered_at', if_not_exists => TRUE);
+SELECT create_hypertable('alert_history', 'time', if_not_exists => TRUE);
 SELECT add_retention_policy('alert_history', INTERVAL '48 hours', if_not_exists => TRUE);
 
+-- Compression policy (after 1 hour)
+ALTER TABLE alert_history SET (
+  timescaledb.compress,
+  timescaledb.compress_segmentby = 'symbol'
+);
+SELECT add_compression_policy('alert_history', INTERVAL '1 hour', if_not_exists => TRUE);
+
 -- Index for fast queries
-CREATE INDEX IF NOT EXISTS idx_alert_history_symbol ON alert_history (symbol, triggered_at DESC);
-CREATE INDEX IF NOT EXISTS idx_alert_history_type ON alert_history (alert_type, triggered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_history_symbol ON alert_history (symbol, time DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_history_type ON alert_history (rule_type, time DESC);
 
 -- Grant permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO crypto_user;

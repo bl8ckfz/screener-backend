@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +43,8 @@ func main() {
 	natsURL := getEnv("NATS_URL", "nats://localhost:4222")
 	pgURL := getEnv("POSTGRES_URL", "postgres://crypto_user:crypto_pass@localhost:5433/crypto_metadata")
 	redisURL := getEnv("REDIS_URL", "localhost:6379")
+	tsdbURL := getEnv("TIMESCALE_URL", "postgres://crypto_user:crypto_pass@localhost:5432/crypto_timeseries")
+	webhookURLs := getEnvSlice("WEBHOOK_URLS", "")
 
 	// Connect to PostgreSQL
 	log.Info().Msg("Connecting to PostgreSQL")
@@ -49,17 +52,17 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse PostgreSQL URL")
 	}
-	
+
 	poolConfig.MaxConns = 10
 	poolConfig.MaxConnLifetime = 1 * time.Hour
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
-	
+
 	db, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to PostgreSQL")
 	}
 	defer db.Close()
-	
+
 	// Verify connection
 	if err := db.Ping(ctx); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ping PostgreSQL")
@@ -75,6 +78,28 @@ func main() {
 	// Test Redis connection
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
+	}
+
+	// Connect to TimescaleDB
+	log.Info().Msg("Connecting to TimescaleDB")
+	tsdbConfig, err := pgxpool.ParseConfig(tsdbURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse TimescaleDB URL")
+	}
+
+	tsdbConfig.MaxConns = 10
+	tsdbConfig.MaxConnLifetime = 1 * time.Hour
+	tsdbConfig.MaxConnIdleTime = 30 * time.Minute
+
+	tsdb, err := pgxpool.NewWithConfig(ctx, tsdbConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to TimescaleDB")
+	}
+	defer tsdb.Close()
+
+	// Verify connection
+	if err := tsdb.Ping(ctx); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ping TimescaleDB")
 	}
 
 	// Connect to NATS
@@ -110,6 +135,15 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load alert rules")
 	}
 
+	// Initialize notifier
+	notifier := alerts.NewNotifier(webhookURLs, log.Logger)
+	log.Info().Int("webhooks", len(webhookURLs)).Msg("Initialized notifier")
+
+	// Initialize persister
+	persister := alerts.NewAlertPersister(tsdb, log.Logger)
+	defer persister.Close()
+	log.Info().Msg("Initialized alert persister")
+
 	// Subscribe to metrics
 	log.Info().Msg("Subscribing to metrics.calculated")
 	sub, err := js.Subscribe("metrics.calculated", func(msg *nats.Msg) {
@@ -127,8 +161,17 @@ func main() {
 			return
 		}
 
-		// Publish triggered alerts
+		// Process triggered alerts
 		for _, alert := range triggeredAlerts {
+			// Persist to database
+			persister.SaveAlert(alert)
+
+			// Send webhook notifications
+			if err := notifier.SendAlert(alert); err != nil {
+				log.Error().Err(err).Str("symbol", alert.Symbol).Msg("Failed to send webhook")
+			}
+
+			// Publish to NATS for API Gateway
 			payload, err := json.Marshal(alert)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to marshal alert")
@@ -146,7 +189,11 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to subscribe to metrics")
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Error().Err(err).Msg("Failed to unsubscribe")
+		}
+	}()
 
 	log.Info().Msg("Alert Engine service started")
 
@@ -164,4 +211,22 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func getEnvSlice(key, defaultValue string) []string {
+	value := getEnv(key, defaultValue)
+	if value == "" {
+		return []string{}
+	}
+
+	// Split by comma and trim spaces
+	parts := strings.Split(value, ",")
+	var result []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

@@ -1,6 +1,6 @@
 # Project State Tracking
 
-**Last Updated**: December 18, 2025
+**Last Updated**: January 16, 2026
 
 This file tracks actions taken during development to avoid duplication and maintain progress visibility.
 
@@ -9,10 +9,10 @@ This file tracks actions taken during development to avoid duplication and maint
   "project": {
     "name": "crypto-screener-backend",
     "status": "in-progress",
-    "phase": "phase-2-week-4-complete",
+    "phase": "phase-4-week-8-complete",
     "start_date": "2025-12-09",
-    "current_milestone": "Data Collector Service Complete",
-    "last_updated": "2025-12-18"
+    "current_milestone": "Alert Engine integrated; alert-first focus",
+    "last_updated": "2026-01-16"
   },
   "structure": {
     "directories_created": [
@@ -41,30 +41,31 @@ This file tracks actions taken during development to avoid duplication and maint
     ],
     "files_created": [
       ".github/copilot-instructions.md",
-      "internal/binance/client.go",
-      "internal/binance/websocket.go",
-      "internal/binance/types.go",
-      "docs/PHASE2_COMPLETE.md",
       ".github/workflows/ci.yml",
-      ".vscode/launch.json",
-      ".vscode/settings.json",
-      ".air.toml",
-      "go.mod",
-      "go.sum",
-      "Makefile",
-      "docker-compose.yml",
       "cmd/data-collector/main.go",
       "cmd/metrics-calculator/main.go",
       "cmd/alert-engine/main.go",
       "cmd/api-gateway/main.go",
+      "internal/binance/client.go",
+      "internal/binance/websocket.go",
+      "internal/binance/types.go",
+      "internal/ringbuffer/ringbuffer.go",
+      "internal/indicators/indicators.go",
+      "internal/indicators/indicators_test.go",
+      "internal/calculator/calculator.go",
+      "internal/calculator/persistence.go",
+      "internal/alerts/types.go",
+      "internal/alerts/engine.go",
+      "internal/alerts/notifier.go",
+      "internal/alerts/persistence.go",
+      "pkg/database/postgres.go",
+      "pkg/messaging/nats.go",
       "deployments/docker/Dockerfile.data-collector",
       "deployments/docker/Dockerfile.metrics-calculator",
       "deployments/docker/Dockerfile.alert-engine",
       "deployments/docker/Dockerfile.api-gateway",
       "deployments/k8s/init-timescaledb.sql",
       "deployments/k8s/init-postgres.sql",
-      "pkg/database/postgres.go",
-      "pkg/messaging/nats.go",
       "tests/integration/infra.go"
     ],
     "files_modified": [
@@ -77,65 +78,43 @@ This file tracks actions taken during development to avoid duplication and maint
       "created": "2025-12-09",
       "version": "1.0",
       "status": "complete",
-      "sources": [
-        "README.md",
-        "docs/ROADMAP.md",
-        ".gitignore"
-      ]
+      "sources": ["README.md", "docs/ROADMAP.md", ".gitignore"]
     },
     "roadmap": {
       "exists": true,
-      "lines": 1661,
+      "lines": 1662,
       "phases": 9,
       "timeline_weeks": 14
     }
+  },
   "implementation": {
     "services": {
       "data_collector": {
         "status": "complete",
         "main_file": "cmd/data-collector/main.go",
         "dockerfile": "deployments/docker/Dockerfile.data-collector",
-        "dependencies": ["gorilla/websocket", "nats.go", "zerolog"],
-        "implementation": {
-          "binance_http_client": "complete",
-          "websocket_manager": "complete",
-          "connection_pooling": "complete",
-          "auto_reconnect": "complete",
-          "exponential_backoff": "complete",
-          "candle_parsing": "complete",
-          "candle_validation": "complete",
-          "nats_publishing": "complete",
-          "graceful_shutdown": "complete"
-        },
         "tested": "2025-12-18",
-        "active_symbols": 43,
-        "features": [
-          "Connects to Binance Futures WebSocket API",
-          "Fetches active USDT perpetual futures",
-          "1 WebSocket per symbol (43 concurrent connections)",
-          "Exponential backoff reconnection (2s-30s)",
-          "Validates closed candles only (IsClosed=true)",
-          "Publishes to NATS candles.1m.{SYMBOL} topics",
-          "Structured logging with zerolog"
-        ]
+        "active_symbols": 43
       },
       "metrics_calculator": {
-        "status": "scaffolded",
+        "status": "complete",
         "main_file": "cmd/metrics-calculator/main.go",
         "dockerfile": "deployments/docker/Dockerfile.metrics-calculator",
-        "dependencies": ["nats.go", "pgx", "zerolog"]
+        "tested": "2026-01-10",
+        "notes": "ring buffer + multi-timeframe aggregates + VCP/Fib/RSI/MACD; publishes metrics.calculated; persists to Timescale"
       },
       "alert_engine": {
-        "status": "scaffolded",
+        "status": "complete",
         "main_file": "cmd/alert-engine/main.go",
         "dockerfile": "deployments/docker/Dockerfile.alert-engine",
-        "dependencies": ["nats.go", "pgx", "zerolog"]
+        "tested": "2026-01-16",
+        "notes": "10 futures rules, Redis dedup per candle, webhook notifier, Timescale persistence, publishes alerts.triggered"
       },
       "api_gateway": {
-        "status": "scaffolded",
+        "status": "partial",
         "main_file": "cmd/api-gateway/main.go",
         "dockerfile": "deployments/docker/Dockerfile.api-gateway",
-        "dependencies": ["gin", "gorilla/websocket", "nats.go", "pgx", "zerolog"]
+        "notes": "Alerts-first REST/WS implemented (alerts query, alerts.stream); auth placeholder"
       }
     },
     "infrastructure": {
@@ -159,7 +138,6 @@ This file tracks actions taken during development to avoid duplication and maint
       "makefiles_created": true,
       "builds_successfully": true
     }
-  },}
   },
   "dependencies": {
     "tech_stack": {
@@ -171,54 +149,29 @@ This file tracks actions taken during development to avoid duplication and maint
       "logging": "zerolog"
     },
     "external_services": {
-      "binance_api": "planned",
-      "timescaledb": "planned",
+      "binance_api": "live",
+      "timescaledb": "running",
       "postgresql_supabase": "planned",
-      "nats_jetstream": "planned",
-      "redis": "planned"
+      "nats_jetstream": "running",
+      "redis": "running"
     }
   },
   "actions_completed": [
-    {
-      "date": "2025-12-09",
-      "action": "analyzed_codebase",
-      "details": "Scanned workspace for existing code, documentation, and configuration files"
-    },
-    {
-      "date": "2025-12-09",
-      "action": "linked_typescript_implementation",
-      "details": "Added references to ../screener/src/utils/indicators.ts and alertEngine.ts in copilot instructions"
-    },
-    {
-      "date": "2025-12-09",
-      "action": "initialized_go_project",
-      "details": "Ran go mod init and added core dependencies: gin, websocket, pgx, nats, zerolog"
-    },
-    {
-      "date": "2025-12-09",
-      "action": "created_project_structure",
-      "details": "Created cmd/, internal/, pkg/, deployments/, tests/ directories with proper organization"
-    },
-    {
-      "date": "2025-12-09",
-      "action": "scaffolded_services",
+    {"date": "2025-12-09", "action": "project_initialized", "details": "go mod init, deps added, repo scaffolded"},
+    {"date": "2025-12-11", "action": "infra_ready", "details": "docker-compose + NATS/Timescale/Postgres/Redis up; CI wired"},
+    {"date": "2025-12-18", "action": "data_collector_complete", "details": "Binance websockets → NATS candles.1m.*"},
+    {"date": "2026-01-10", "action": "metrics_pipeline_complete", "details": "ring buffer aggregates + indicators → metrics.calculated + Timescale"},
+    {"date": "2026-01-16", "action": "alert_engine_complete", "details": "rule eval + Redis dedup per candle + webhook + Timescale + alerts.triggered"}
+  ],
   "next_steps": [
-    "Phase 3 (Weeks 5-6): Implement metrics-calculator service",
-    "Create ring buffer data structure for 1440 candles per symbol",
-    "Implement O(1) aggregation for 5m/15m/1h/4h/8h/1d timeframes",
-    "Port technical indicators from TypeScript: VCP, Fibonacci, RSI, MACD, Bollinger Bands",
-    "Subscribe to NATS candles.1m.{symbol} topics",
-    "Calculate metrics and persist to TimescaleDB",
-    "Publish enriched metrics to NATS METRICS stream",
-    "Phase 4 (Weeks 7-8): Implement alert-engine with rule evaluation"
-  ],},
-    {
-      "date": "2025-12-09",
-      "action": "created_docker_compose",
-      "details": "Local dev environment with NATS, TimescaleDB, PostgreSQL, and Redis"
-    },
-    {
-      "date": "2025-12-09",
+    "Build API Gateway: REST + WebSocket for alerts with Supabase JWT auth",
+    "Expose alert history queries from Timescale",
+    "Prometheus/health probes across services",
+    "Rule/alert fixture tests and E2E synthetic pipeline test",
+    "Helm/Terraform scaffolding for deployment"
+  ]
+}
+```
       "action": "created_dockerfiles",
       "details": "Multi-stage Dockerfiles for all 4 services with Alpine base and non-root user"
     },
