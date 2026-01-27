@@ -118,6 +118,14 @@ func main() {
 			return
 		}
 
+		// DEBUG: Log received candle to verify volume data
+		logger.WithFields(map[string]interface{}{
+			"symbol":       candle.Symbol,
+			"volume":       candle.Volume,
+			"quote_volume": candle.QuoteVolume,
+			"close":        candle.Close,
+		}).Debug("Received candle from NATS")
+
 		metrics.Counter(observability.MetricCandlesProcessed).Inc()
 
 		// Measure calculation time
@@ -157,9 +165,12 @@ func main() {
 		metrics.Counter(observability.MetricNATSMessagesPublished).Inc()
 
 		logger.WithFields(map[string]interface{}{
-			"symbol": candle.Symbol,
-			"vcp":    metricsData.VCP,
-			"rsi":    metricsData.RSI,
+			"symbol":      candle.Symbol,
+			"vcp":         metricsData.VCP,
+			"rsi":         metricsData.RSI,
+			"volume_1h":   metricsData.Candle1h.Volume,
+			"volume_5m":   metricsData.Candle5m.Volume,
+			"quote_vol_1h": metricsData.Candle1h.Volume,
 		}).Debug("Published metrics")
 	}, nats.Durable("metrics-calculator"), nats.DeliverAll(), nats.AckExplicit(), nats.Bind("CANDLES", "metrics-calculator"))
 
