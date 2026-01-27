@@ -1,6 +1,30 @@
 # Project State Tracking
 
-**Last Updated**: January 22, 2026
+**Last Updated**: January 27, 2026
+
+## Recent Actions (Jan 27, 2026)
+
+### Critical Bug Fix: Zero Volume Data in Alert System
+**Problem**: All 10 alerts triggering simultaneously for every symbol due to zero volume values
+**Root Cause**: `ringbuffer.Candle` struct missing JSON tags, causing silent unmarshalling failure
+**Investigation Timeline**:
+1. Discovered all volumes = 0 in alert-engine logs despite correct aggregation logic
+2. Traced data flow: Binance → data-collector → NATS → metrics-calculator → NATS → alert-engine
+3. Found `binance.Candle` has `json:"volume"` but `ringbuffer.Candle` had no tags
+4. JSON unmarshalling failed silently, leaving Volume/QuoteVolume as zero defaults
+
+**Fixes Applied** (Commits: f84e867, 221e2ec, a7a604d):
+- Added JSON struct tags to `ringbuffer.Candle` matching `binance.Candle` format
+- Fixed alert-engine to properly convert `calculator.SymbolMetrics` to `alerts.Metrics`
+- Added debug logging to trace volume data through pipeline
+- Removed `nats.Bind()` call causing "consumer not found" errors
+
+**Verification**: 
+- ✅ Volumes now non-zero: BTCUSDT volume_1h=67,532,723, ETHUSDT volume_1h=88,983,172
+- ✅ Alerts no longer trigger indiscriminately (volume thresholds evaluated correctly)
+- ✅ No simultaneous contradictory alerts (bull+bear) observed
+
+---
 
 This file tracks actions taken during development to avoid duplication and maintain progress visibility.
 
