@@ -165,14 +165,14 @@ func main() {
 		metrics.Counter(observability.MetricNATSMessagesPublished).Inc()
 
 		logger.WithFields(map[string]interface{}{
-			"symbol":      candle.Symbol,
-			"vcp":         metricsData.VCP,
-			"rsi":         metricsData.RSI,
-			"volume_1h":   metricsData.Candle1h.Volume,
-			"volume_5m":   metricsData.Candle5m.Volume,
+			"symbol":       candle.Symbol,
+			"vcp":          metricsData.VCP,
+			"rsi":          metricsData.RSI,
+			"volume_1h":    metricsData.Candle1h.Volume,
+			"volume_5m":    metricsData.Candle5m.Volume,
 			"quote_vol_1h": metricsData.Candle1h.Volume,
 		}).Debug("Published metrics")
-	}, nats.Durable("metrics-calculator"), nats.DeliverAll(), nats.AckExplicit(), nats.Bind("CANDLES", "metrics-calculator"))
+	}, nats.Durable("metrics-calculator"), nats.DeliverAll(), nats.AckExplicit())
 
 	if err != nil {
 		logger.Fatal("Failed to subscribe to candles", err)
