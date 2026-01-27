@@ -12,12 +12,24 @@ import (
 	"time"
 
 	"github.com/bl8ckfz/crypto-screener-backend/internal/alerts"
+	"github.com/bl8ckfz/crypto-screener-backend/internal/calculator"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/observability"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
 )
+
+// convertCandle converts calculator.TimeframeCandle to alerts.TimeframeCandle
+func convertCandle(c calculator.TimeframeCandle) alerts.TimeframeCandle {
+	return alerts.TimeframeCandle{
+		Open:   c.Open,
+		High:   c.High,
+		Low:    c.Low,
+		Close:  c.Close,
+		Volume: c.Volume,
+	}
+}
 
 func main() {
 	// Setup observability with LOG_LEVEL from environment
@@ -196,24 +208,48 @@ func main() {
 	// Subscribe to metrics
 	logger.Info("Subscribing to metrics.calculated")
 	sub, err := js.Subscribe("metrics.calculated", func(msg *nats.Msg) {
-		// Parse metrics from message
-		var metricsData alerts.Metrics
+		// Parse metrics from message using calculator.SymbolMetrics
+		var metricsData calculator.SymbolMetrics
 		if err := json.Unmarshal(msg.Data, &metricsData); err != nil {
 			logger.Error("Failed to unmarshal metrics", err)
 			return
 		}
 
+		// Convert to alerts.Metrics format
+		alertMetrics := &alerts.Metrics{
+			Symbol:         metricsData.Symbol,
+			Timestamp:      metricsData.Timestamp,
+			LastPrice:      metricsData.LastPrice,
+			Candle1m:       convertCandle(metricsData.Candle1m),
+			Candle5m:       convertCandle(metricsData.Candle5m),
+			Candle15m:      convertCandle(metricsData.Candle15m),
+			Candle1h:       convertCandle(metricsData.Candle1h),
+			Candle8h:       convertCandle(metricsData.Candle8h),
+			Candle1d:       convertCandle(metricsData.Candle1d),
+			PriceChange5m:  metricsData.PriceChange5m,
+			PriceChange15m: metricsData.PriceChange15m,
+			PriceChange1h:  metricsData.PriceChange1h,
+			PriceChange8h:  metricsData.PriceChange8h,
+			PriceChange1d:  metricsData.PriceChange1d,
+			VolumeRatio5m:  metricsData.VolumeRatio5m,
+			VolumeRatio15m: metricsData.VolumeRatio15m,
+			VolumeRatio1h:  metricsData.VolumeRatio1h,
+			VolumeRatio8h:  metricsData.VolumeRatio8h,
+			VCP:            metricsData.VCP,
+			RSI:            metricsData.RSI,
+		}
+
 		// DEBUG: Log metrics to identify data issues
 		logger.WithFields(map[string]interface{}{
-			"symbol":       metricsData.Symbol,
-			"price":        metricsData.LastPrice,
-			"change_5m":    metricsData.PriceChange5m,
-			"change_15m":   metricsData.PriceChange15m,
-			"change_1h":    metricsData.PriceChange1h,
-			"change_8h":    metricsData.PriceChange8h,
-			"change_1d":    metricsData.PriceChange1d,
-			"volume_5m":    metricsData.Candle5m.Volume,
-			"volume_1h":    metricsData.Candle1h.Volume,
+			"symbol":       alertMetrics.Symbol,
+			"price":        alertMetrics.LastPrice,
+			"change_5m":    alertMetrics.PriceChange5m,
+			"change_15m":   alertMetrics.PriceChange15m,
+			"change_1h":    alertMetrics.PriceChange1h,
+			"change_8h":    alertMetrics.PriceChange8h,
+			"change_1d":    alertMetrics.PriceChange1d,
+			"volume_5m":    alertMetrics.Candle5m.Volume,
+			"volume_1h":    alertMetrics.Candle1h.Volume,
 		}).Debug("Received metrics for evaluation")
 
 		metrics.Counter(observability.MetricNATSMessagesReceived).Inc()
@@ -222,9 +258,9 @@ func main() {
 		defer metrics.Timer(observability.MetricEvaluationDuration)()
 
 		// Evaluate all rules
-		triggeredAlerts, err := engine.Evaluate(ctx, &metricsData)
+		triggeredAlerts, err := engine.Evaluate(ctx, alertMetrics)
 		if err != nil {
-			logger.WithField("symbol", metricsData.Symbol).Error("Failed to evaluate rules", err)
+			logger.WithField("symbol", alertMetrics.Symbol).Error("Failed to evaluate rules", err)
 			return
 		}
 
