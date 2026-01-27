@@ -254,6 +254,10 @@ func (s *server) handleAlertsWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const pongWait = 30 * time.Second
+	const pingPeriod = 20 * time.Second
+	const writeWait = 10 * time.Second
+
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -265,18 +269,39 @@ func (s *server) handleAlertsWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sub.Unsubscribe()
 
-	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(pongWait))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		return nil
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
+
+	var writeMu sync.Mutex
+	pingTicker := time.NewTicker(pingPeriod)
+	defer pingTicker.Stop()
 
 	go func() {
 		for {
-			if _, _, err := conn.NextReader(); err != nil {
-				cancel()
+			select {
+			case <-pingTicker.C:
+				writeMu.Lock()
+				_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+				_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(writeWait))
+				writeMu.Unlock()
+			case <-ctx.Done():
 				return
 			}
+		}
+	}()
+
+	// Read pump to detect client disconnects and handle pong frames
+	// This goroutine must exist for SetPongHandler to work
+	go func() {
+		defer cancel()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+			// Client sent a message (could be keepalive JSON) - reset deadline
+			_ = conn.SetReadDeadline(time.Now().Add(pongWait))
 		}
 	}()
 
@@ -285,7 +310,11 @@ func (s *server) handleAlertsWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-		if err := conn.WriteMessage(websocket.TextMessage, msg.Data); err != nil {
+		writeMu.Lock()
+		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+		err = conn.WriteMessage(websocket.TextMessage, msg.Data)
+		writeMu.Unlock()
+		if err != nil {
 			break
 		}
 	}
