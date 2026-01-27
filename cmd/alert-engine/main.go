@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -11,19 +13,19 @@ import (
 
 	"github.com/bl8ckfz/crypto-screener-backend/internal/alerts"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
+	"github.com/bl8ckfz/crypto-screener-backend/pkg/observability"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 func main() {
-	// Setup structured logging
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// Setup observability
+	logger := observability.NewLogger("alert-engine", observability.LevelInfo)
+	metrics := observability.GetCollector()
+	health := observability.NewHealthChecker()
 
-	log.Info().Msg("Starting Alert Engine service")
+	logger.Info("Starting Alert Engine service")
 
 	// Context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -35,7 +37,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Info().Msg("Shutdown signal received")
+		logger.Info("Shutdown signal received")
 		cancel()
 	}()
 
@@ -43,14 +45,15 @@ func main() {
 	natsURL := getEnv("NATS_URL", "nats://localhost:4222")
 	pgURL := getEnv("POSTGRES_URL", "postgres://crypto_user:crypto_pass@localhost:5433/crypto_metadata")
 	redisURL := getEnv("REDIS_URL", "localhost:6379")
+	redisPassword := getEnv("REDIS_PASSWORD", "")
 	tsdbURL := getEnv("TIMESCALE_URL", "postgres://crypto_user:crypto_pass@localhost:5432/crypto_timeseries")
 	webhookURLs := getEnvSlice("WEBHOOK_URLS", "")
 
 	// Connect to PostgreSQL
-	log.Info().Msg("Connecting to PostgreSQL")
+	logger.Info("Connecting to PostgreSQL")
 	poolConfig, err := pgxpool.ParseConfig(pgURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse PostgreSQL URL")
+		logger.Fatal("Failed to parse PostgreSQL URL", err)
 	}
 
 	poolConfig.MaxConns = 10
@@ -59,32 +62,51 @@ func main() {
 
 	db, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to PostgreSQL")
+		logger.Fatal("Failed to connect to PostgreSQL", err)
 	}
 	defer db.Close()
 
 	// Verify connection
 	if err := db.Ping(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Failed to ping PostgreSQL")
+		logger.Fatal("Failed to ping PostgreSQL", err)
 	}
 
-	// Connect to Redis
-	log.Info().Str("url", redisURL).Msg("Connecting to Redis")
-	rdb := redis.NewClient(&redis.Options{
-		Addr: redisURL,
+	// Add PostgreSQL health check
+	health.AddCheck("postgres", func(ctx context.Context) error {
+		return db.Ping(ctx)
 	})
-	defer rdb.Close()
 
-	// Test Redis connection
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to Redis")
+	// Connect to Redis (optional - use in-memory if not available)
+	var rdb *redis.Client
+	if redisURL != "" && redisURL != "disabled" {
+		logger.WithField("url", redisURL).Info("Connecting to Redis")
+		rdb = redis.NewClient(&redis.Options{
+			Addr:     redisURL,
+			Password: redisPassword,
+		})
+		
+		// Test Redis connection
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			logger.Warn("Failed to connect to Redis, using in-memory deduplication", err)
+			rdb.Close()
+			rdb = nil
+		} else {
+			defer rdb.Close()
+			// Add Redis health check
+			health.AddCheck("redis", func(ctx context.Context) error {
+				return rdb.Ping(ctx).Err()
+			})
+			logger.Info("Connected to Redis for alert deduplication")
+		}
+	} else {
+		logger.Info("Redis disabled, using in-memory deduplication")
 	}
 
 	// Connect to TimescaleDB
-	log.Info().Msg("Connecting to TimescaleDB")
+	logger.Info("Connecting to TimescaleDB")
 	tsdbConfig, err := pgxpool.ParseConfig(tsdbURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse TimescaleDB URL")
+		logger.Fatal("Failed to parse TimescaleDB URL", err)
 	}
 
 	tsdbConfig.MaxConns = 10
@@ -93,17 +115,22 @@ func main() {
 
 	tsdb, err := pgxpool.NewWithConfig(ctx, tsdbConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to TimescaleDB")
+		logger.Fatal("Failed to connect to TimescaleDB", err)
 	}
 	defer tsdb.Close()
 
 	// Verify connection
 	if err := tsdb.Ping(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Failed to ping TimescaleDB")
+		logger.Fatal("Failed to ping TimescaleDB", err)
 	}
 
+	// Add TimescaleDB health check
+	health.AddCheck("timescaledb", func(ctx context.Context) error {
+		return tsdb.Ping(ctx)
+	})
+
 	// Connect to NATS
-	log.Info().Str("url", natsURL).Msg("Connecting to NATS")
+	logger.Infof("Connecting to NATS: %s", natsURL)
 	nc, err := messaging.NewNATSConn(messaging.Config{
 		URL:             natsURL,
 		MaxReconnects:   -1,
@@ -111,91 +138,137 @@ func main() {
 		EnableJetStream: true,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to NATS")
+		logger.Fatal("Failed to connect to NATS", err)
 	}
 	defer nc.Close()
+
+	// Add NATS health check
+	health.AddCheck("nats", func(ctx context.Context) error {
+		if nc.IsClosed() {
+			return fmt.Errorf("NATS connection closed")
+		}
+		return nil
+	})
 
 	// Create JetStream context
 	js, err := messaging.NewJetStream(nc)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create JetStream context")
+		logger.Fatal("Failed to create JetStream context", err)
 	}
 
 	// Ensure ALERTS stream exists
 	if err := messaging.CreateStream(js, "ALERTS", []string{"alerts.>"}, 1*time.Hour); err != nil {
-		log.Fatal().Err(err).Msg("Failed to create ALERTS stream")
+		logger.Fatal("Failed to create ALERTS stream", err)
 	}
 
 	// Initialize alert engine
-	engine := alerts.NewEngine(db, rdb, log.Logger)
+	engine := alerts.NewEngine(db, rdb, logger.Zerolog())
 
 	// Load alert rules from database
-	log.Info().Msg("Loading alert rules")
+	logger.Info("Loading alert rules")
 	if err := engine.LoadRules(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Failed to load alert rules")
+		logger.Fatal("Failed to load alert rules", err)
 	}
 
 	// Initialize notifier
-	notifier := alerts.NewNotifier(webhookURLs, log.Logger)
-	log.Info().Int("webhooks", len(webhookURLs)).Msg("Initialized notifier")
+	notifier := alerts.NewNotifier(webhookURLs, logger.Zerolog())
+	logger.WithField("webhooks", len(webhookURLs)).Info("Initialized notifier")
 
 	// Initialize persister
-	persister := alerts.NewAlertPersister(tsdb, log.Logger)
+	persister := alerts.NewAlertPersister(tsdb, logger.Zerolog())
 	defer persister.Close()
-	log.Info().Msg("Initialized alert persister")
+	logger.Info("Initialized alert persister")
 
 	// Subscribe to metrics
-	log.Info().Msg("Subscribing to metrics.calculated")
+	logger.Info("Subscribing to metrics.calculated")
 	sub, err := js.Subscribe("metrics.calculated", func(msg *nats.Msg) {
 		// Parse metrics from message
-		var metrics alerts.Metrics
-		if err := json.Unmarshal(msg.Data, &metrics); err != nil {
-			log.Error().Err(err).Msg("Failed to unmarshal metrics")
+		var metricsData alerts.Metrics
+		if err := json.Unmarshal(msg.Data, &metricsData); err != nil {
+			logger.Error("Failed to unmarshal metrics", err)
 			return
 		}
 
+		metrics.Counter(observability.MetricNATSMessagesReceived).Inc()
+
+		// Measure evaluation time
+		defer metrics.Timer(observability.MetricEvaluationDuration)()
+
 		// Evaluate all rules
-		triggeredAlerts, err := engine.Evaluate(ctx, &metrics)
+		triggeredAlerts, err := engine.Evaluate(ctx, &metricsData)
 		if err != nil {
-			log.Error().Err(err).Str("symbol", metrics.Symbol).Msg("Failed to evaluate rules")
+			logger.WithField("symbol", metricsData.Symbol).Error("Failed to evaluate rules", err)
 			return
 		}
+
+		metrics.Counter(observability.MetricAlertsEvaluated).Inc()
 
 		// Process triggered alerts
 		for _, alert := range triggeredAlerts {
+			metrics.Counter(observability.MetricAlertsTriggered).Inc()
+
 			// Persist to database
 			persister.SaveAlert(alert)
 
 			// Send webhook notifications
 			if err := notifier.SendAlert(alert); err != nil {
-				log.Error().Err(err).Str("symbol", alert.Symbol).Msg("Failed to send webhook")
+				logger.WithField("symbol", alert.Symbol).Error("Failed to send webhook", err)
+				metrics.Counter(observability.MetricWebhooksFailed).Inc()
+			} else {
+				metrics.Counter(observability.MetricWebhooksSent).Inc()
 			}
 
 			// Publish to NATS for API Gateway
 			payload, err := json.Marshal(alert)
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to marshal alert")
+				logger.Error("Failed to marshal alert", err)
 				continue
 			}
 
 			subject := "alerts.triggered"
 			if _, err := js.Publish(subject, payload); err != nil {
-				log.Error().Err(err).Msg("Failed to publish alert")
+				logger.Error("Failed to publish alert", err)
+				metrics.Counter(observability.MetricNATSPublishErrors).Inc()
 				continue
 			}
+
+			metrics.Counter(observability.MetricNATSMessagesPublished).Inc()
 		}
 	}, nats.Durable("alert-engine"), nats.DeliverAll())
 
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to subscribe to metrics")
+		logger.Fatal("Failed to subscribe to metrics", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
-			log.Error().Err(err).Msg("Failed to unsubscribe")
+			logger.Error("Failed to unsubscribe", err)
 		}
 	}()
 
-	log.Info().Msg("Alert Engine service started")
+	// Start metrics server
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9092"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", metrics.Handler())
+	mux.HandleFunc("/health/live", health.LivenessHandler())
+	mux.HandleFunc("/health/ready", health.ReadinessHandler())
+
+	metricsServer := &http.Server{
+		Addr:    ":" + metricsPort,
+		Handler: mux,
+	}
+
+	go func() {
+		logger.Infof("Metrics server listening on :%s", metricsPort)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server error", err)
+		}
+	}()
+	defer metricsServer.Shutdown(context.Background())
+
+	logger.Info("Alert Engine service started")
 
 	// Wait for shutdown
 	<-ctx.Done()
@@ -203,7 +276,7 @@ func main() {
 	// Give time for final messages to process
 	time.Sleep(1 * time.Second)
 
-	log.Info().Msg("Alert Engine service stopped")
+	logger.Info("Alert Engine service stopped")
 }
 
 func getEnv(key, defaultValue string) string {
