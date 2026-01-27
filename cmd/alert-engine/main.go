@@ -20,8 +20,22 @@ import (
 )
 
 func main() {
-	// Setup observability
-	logger := observability.NewLogger("alert-engine", observability.LevelInfo)
+	// Setup observability with LOG_LEVEL from environment
+	logLevel := observability.LevelInfo
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		switch strings.ToLower(level) {
+		case "debug":
+			logLevel = observability.LevelDebug
+		case "info":
+			logLevel = observability.LevelInfo
+		case "warn", "warning":
+			logLevel = observability.LevelWarn
+		case "error":
+			logLevel = observability.LevelError
+		}
+	}
+	
+	logger := observability.NewLogger("alert-engine", logLevel)
 	metrics := observability.GetCollector()
 	health := observability.NewHealthChecker()
 
