@@ -153,201 +153,123 @@ func (e *Engine) evaluateRule(ruleType string, criteria *AlertCriteria, metrics 
 }
 
 // evaluateBigBull60: Sustained momentum over multiple timeframes
+// Frontend logic: change_1h > 1.6 && change_1d < 15 && change_8h > change_1h && 
+// change_1d > change_8h && volume_1h > 500_000 && volume_8h > 5_000_000 &&
+// 6 * volume_1h > volume_8h && 16 * volume_1h > volume_1d
 func (e *Engine) evaluateBigBull60(c *AlertCriteria, m *Metrics) bool {
-	if c.Change1hMin != nil && m.PriceChange1h < *c.Change1hMin {
-		return false
-	}
-	if c.Change1dMax != nil && m.PriceChange1d > *c.Change1dMax {
-		return false
-	}
-	if c.Change8hGt1h && m.PriceChange8h <= m.PriceChange1h {
-		return false
-	}
-	if c.Change1dGt8h && m.PriceChange1d <= m.PriceChange8h {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	if c.Volume8hMin != nil && m.Candle8h.Volume < *c.Volume8hMin {
-		return false
-	}
-	if c.VolumeRatio1h8h != nil && m.VolumeRatio1h < *c.VolumeRatio1h8h {
-		return false
-	}
-	if c.VolumeRatio1h1d != nil && m.VolumeRatio1h < *c.VolumeRatio1h1d {
-		return false
-	}
-	return true
+	return m.PriceChange1h > 1.6 &&
+		m.PriceChange1d < 15 &&
+		m.PriceChange8h > m.PriceChange1h &&
+		m.PriceChange1d > m.PriceChange8h &&
+		m.Candle1h.Volume > 500_000 &&
+		m.Candle8h.Volume > 5_000_000 &&
+		6*m.Candle1h.Volume > m.Candle8h.Volume &&
+		16*m.Candle1h.Volume > m.Candle1d.Volume
 }
 
 // evaluateBigBear60: Sustained downward momentum
+// Frontend logic: change_1h < -1.6 && change_1d > -15 && change_8h < change_1h &&
+// change_1d < change_8h && volume_1h > 500_000 && volume_8h > 5_000_000 &&
+// 6 * volume_1h > volume_8h && 16 * volume_1h > volume_1d
 func (e *Engine) evaluateBigBear60(c *AlertCriteria, m *Metrics) bool {
-	if c.Change1hMax != nil && m.PriceChange1h > *c.Change1hMax {
-		return false
-	}
-	if c.Change1dMin != nil && m.PriceChange1d < *c.Change1dMin {
-		return false
-	}
-	if c.Change8hLt1h && m.PriceChange8h >= m.PriceChange1h {
-		return false
-	}
-	if c.Change1dLt8h && m.PriceChange1d >= m.PriceChange8h {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	if c.Volume8hMin != nil && m.Candle8h.Volume < *c.Volume8hMin {
-		return false
-	}
-	if c.VolumeRatio1h8h != nil && m.VolumeRatio1h < *c.VolumeRatio1h8h {
-		return false
-	}
-	if c.VolumeRatio1h1d != nil && m.VolumeRatio1h < *c.VolumeRatio1h1d {
-		return false
-	}
-	return true
+	return m.PriceChange1h < -1.6 &&
+		m.PriceChange1d > -15 &&
+		m.PriceChange8h < m.PriceChange1h &&
+		m.PriceChange1d < m.PriceChange8h &&
+		m.Candle1h.Volume > 500_000 &&
+		m.Candle8h.Volume > 5_000_000 &&
+		6*m.Candle1h.Volume > m.Candle8h.Volume &&
+		16*m.Candle1h.Volume > m.Candle1d.Volume
 }
 
 // evaluatePioneerBull: Early bullish momentum detection
+// Frontend logic: change_5m > 1 && change_15m > 1 && 3 * change_5m > change_15m && 2 * volume_5m > volume_15m
 func (e *Engine) evaluatePioneerBull(c *AlertCriteria, m *Metrics) bool {
-	if c.Change5mMin != nil && m.PriceChange5m < *c.Change5mMin {
-		return false
-	}
-	if c.Change15mMin != nil && m.PriceChange15m < *c.Change15mMin {
-		return false
-	}
-	if c.ChangeAcceleration != nil && m.PriceChange15m > 0 && 
-		(*c.ChangeAcceleration)*m.PriceChange5m < m.PriceChange15m {
-		return false
-	}
-	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
-		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
-		return false
-	}
-	return true
+	return m.PriceChange5m > 1 &&
+		m.PriceChange15m > 1 &&
+		3*m.PriceChange5m > m.PriceChange15m &&
+		2*m.Candle5m.Volume > m.Candle15m.Volume
 }
 
 // evaluatePioneerBear: Early bearish momentum detection
+// Frontend logic: change_5m < -1 && change_15m < -1 && 3 * change_5m < change_15m && 2 * volume_5m > volume_15m
 func (e *Engine) evaluatePioneerBear(c *AlertCriteria, m *Metrics) bool {
-	if c.Change5mMax != nil && m.PriceChange5m > *c.Change5mMax {
-		return false
-	}
-	if c.Change15mMax != nil && m.PriceChange15m > *c.Change15mMax {
-		return false
-	}
-	if c.ChangeAcceleration != nil && m.PriceChange15m < 0 && 
-		(*c.ChangeAcceleration)*m.PriceChange5m > m.PriceChange15m {
-		return false
-	}
-	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
-		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
-		return false
-	}
-	return true
+	return m.PriceChange5m < -1 &&
+		m.PriceChange15m < -1 &&
+		3*m.PriceChange5m < m.PriceChange15m &&
+		2*m.Candle5m.Volume > m.Candle15m.Volume
 }
 
 // evaluate5BigBull: Explosive bullish moves starting from 5m
+// Frontend logic: change_5m > 0.6 && change_1d < 15 && change_15m > change_5m && change_1h > change_15m &&
+// volume_5m > 100_000 && volume_1h > 1_000_000 && volume_5m > volume_15m / 3 &&
+// volume_5m > volume_1h / 6 && volume_5m > volume_8h / 66
 func (e *Engine) evaluate5BigBull(c *AlertCriteria, m *Metrics) bool {
-	if c.Change5mMin != nil && m.PriceChange5m < *c.Change5mMin {
-		return false
-	}
-	if c.Change1dMax != nil && m.PriceChange1d > *c.Change1dMax {
-		return false
-	}
-	if c.Change15mGt5m && m.PriceChange15m <= m.PriceChange5m {
-		return false
-	}
-	if c.Change1hGt15m && m.PriceChange1h <= m.PriceChange15m {
-		return false
-	}
-	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	return e.checkVolumeRatios5m(c, m)
+	return m.PriceChange5m > 0.6 &&
+		m.PriceChange1d < 15 &&
+		m.PriceChange15m > m.PriceChange5m &&
+		m.PriceChange1h > m.PriceChange15m &&
+		m.Candle5m.Volume > 100_000 &&
+		m.Candle1h.Volume > 1_000_000 &&
+		m.Candle5m.Volume > m.Candle15m.Volume/3 &&
+		m.Candle5m.Volume > m.Candle1h.Volume/6 &&
+		m.Candle5m.Volume > m.Candle8h.Volume/66
 }
 
 // evaluate5BigBear: Explosive bearish moves starting from 5m
+// Frontend logic: change_5m < -0.6 && change_1d > -15 && change_15m < change_5m && change_1h < change_15m &&
+// volume_5m > 100_000 && volume_1h > 1_000_000 && volume_5m > volume_15m / 3 &&
+// volume_5m > volume_1h / 6 && volume_5m > volume_8h / 66
 func (e *Engine) evaluate5BigBear(c *AlertCriteria, m *Metrics) bool {
-	if c.Change5mMax != nil && m.PriceChange5m > *c.Change5mMax {
-		return false
-	}
-	if c.Change1dMin != nil && m.PriceChange1d < *c.Change1dMin {
-		return false
-	}
-	if c.Change15mLt5m && m.PriceChange15m >= m.PriceChange5m {
-		return false
-	}
-	if c.Change1hLt15m && m.PriceChange1h >= m.PriceChange15m {
-		return false
-	}
-	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	return e.checkVolumeRatios5m(c, m)
+	return m.PriceChange5m < -0.6 &&
+		m.PriceChange1d > -15 &&
+		m.PriceChange15m < m.PriceChange5m &&
+		m.PriceChange1h < m.PriceChange15m &&
+		m.Candle5m.Volume > 100_000 &&
+		m.Candle1h.Volume > 1_000_000 &&
+		m.Candle5m.Volume > m.Candle15m.Volume/3 &&
+		m.Candle5m.Volume > m.Candle1h.Volume/6 &&
+		m.Candle5m.Volume > m.Candle8h.Volume/66
 }
 
 // evaluate15BigBull: Strong bullish trending from 15m
+// Frontend logic: change_15m > 1 && change_1d < 15 && change_1h > change_15m && change_8h > change_1h &&
+// volume_15m > 400_000 && volume_1h > 1_000_000 && volume_15m > volume_1h / 3 && volume_15m > volume_8h / 26
 func (e *Engine) evaluate15BigBull(c *AlertCriteria, m *Metrics) bool {
-	if c.Change15mMin != nil && m.PriceChange15m < *c.Change15mMin {
-		return false
-	}
-	if c.Change1dMax != nil && m.PriceChange1d > *c.Change1dMax {
-		return false
-	}
-	if c.Change1hGt15m && m.PriceChange1h <= m.PriceChange15m {
-		return false
-	}
-	if c.Change8hGt1hAlt && m.PriceChange8h <= m.PriceChange1h {
-		return false
-	}
-	if c.Volume15mMin != nil && m.Candle15m.Volume < *c.Volume15mMin {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	return e.checkVolumeRatios15m(c, m)
+	return m.PriceChange15m > 1 &&
+		m.PriceChange1d < 15 &&
+		m.PriceChange1h > m.PriceChange15m &&
+		m.PriceChange8h > m.PriceChange1h &&
+		m.Candle15m.Volume > 400_000 &&
+		m.Candle1h.Volume > 1_000_000 &&
+		m.Candle15m.Volume > m.Candle1h.Volume/3 &&
+		m.Candle15m.Volume > m.Candle8h.Volume/26
 }
 
 // evaluate15BigBear: Strong bearish trending from 15m
+// Frontend logic: change_15m < -1 && change_1d > -15 && change_1h < change_15m && change_8h < change_1h &&
+// volume_15m > 400_000 && volume_1h > 1_000_000 && volume_15m > volume_1h / 3 && volume_15m > volume_8h / 26
 func (e *Engine) evaluate15BigBear(c *AlertCriteria, m *Metrics) bool {
-	if c.Change15mMax != nil && m.PriceChange15m > *c.Change15mMax {
-		return false
-	}
-	if c.Change1dMin != nil && m.PriceChange1d < *c.Change1dMin {
-		return false
-	}
-	if c.Change1hLt15mAlt && m.PriceChange1h >= m.PriceChange15m {
-		return false
-	}
-	if c.Change8hLt1h && m.PriceChange8h >= m.PriceChange1h {
-		return false
-	}
-	if c.Volume15mMin != nil && m.Candle15m.Volume < *c.Volume15mMin {
-		return false
-	}
-	if c.Volume1hMin != nil && m.Candle1h.Volume < *c.Volume1hMin {
-		return false
-	}
-	return e.checkVolumeRatios15m(c, m)
+	return m.PriceChange15m < -1 &&
+		m.PriceChange1d > -15 &&
+		m.PriceChange1h < m.PriceChange15m &&
+		m.PriceChange8h < m.PriceChange1h &&
+		m.Candle15m.Volume > 400_000 &&
+		m.Candle1h.Volume > 1_000_000 &&
+		m.Candle15m.Volume > m.Candle1h.Volume/3 &&
+		m.Candle15m.Volume > m.Candle8h.Volume/26
 }
 
 // evaluateBottomHunter: Detect reversal from bottom
+// Frontend logic: change_1h < -0.7 && change_15m < -0.6 && change_5m > 0.5 &&
+// volume_5m > volume_15m / 2 && volume_5m > volume_1h / 8
 func (e *Engine) evaluateBottomHunter(c *AlertCriteria, m *Metrics) bool {
-	if c.Change1hMax != nil && m.PriceChange1h > *c.Change1hMax {
-		return false
-	}
-	if c.Change15mMax != nil && m.PriceChange15m > *c.Change15mMax {
-		return false
-	}
+	return m.PriceChange1h < -0.7 &&
+		m.PriceChange15m < -0.6 &&
+		m.PriceChange5m > 0.5 &&
+		m.Candle5m.Volume > m.Candle15m.Volume/2 &&
+		m.Candle5m.Volume > m.Candle1h.Volume/8
+}
 	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
 		return false
 	}
@@ -363,25 +285,14 @@ func (e *Engine) evaluateBottomHunter(c *AlertCriteria, m *Metrics) bool {
 }
 
 // evaluateTopHunter: Detect reversal from top
+// Frontend logic: change_1h > 0.7 && change_15m > 0.6 && change_5m < -0.5 &&
+// volume_5m > volume_15m / 2 && volume_5m > volume_1h / 8
 func (e *Engine) evaluateTopHunter(c *AlertCriteria, m *Metrics) bool {
-	if c.Change1hMin != nil && m.PriceChange1h < *c.Change1hMin {
-		return false
-	}
-	if c.Change15mMin != nil && m.PriceChange15m < *c.Change15mMin {
-		return false
-	}
-	if c.Change5mMax != nil && m.PriceChange5m > *c.Change5mMax {
-		return false
-	}
-	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
-		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
-		return false
-	}
-	if c.VolumeRatio5m1h != nil && m.Candle1h.Volume > 0 && 
-		(*c.VolumeRatio5m1h)*m.Candle5m.Volume < m.Candle1h.Volume {
-		return false
-	}
-	return true
+	return m.PriceChange1h > 0.7 &&
+		m.PriceChange15m > 0.6 &&
+		m.PriceChange5m < -0.5 &&
+		m.Candle5m.Volume > m.Candle15m.Volume/2 &&
+		m.Candle5m.Volume > m.Candle1h.Volume/8
 }
 
 // Helper functions
