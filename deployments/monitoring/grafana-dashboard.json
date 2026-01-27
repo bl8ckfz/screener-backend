@@ -1,0 +1,100 @@
+{
+  "dashboard": {
+    "title": "Crypto Screener - System Overview",
+    "tags": ["crypto", "screener", "overview"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Candles Received (Data Collector)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(data_collector_candles_received_total[5m])",
+            "legendFormat": "Candles/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "WebSocket Connections",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "data_collector_websocket_connections",
+            "legendFormat": "Active Connections"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Metrics Calculated Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(metrics_calculator_metrics_calculated_total[5m])",
+            "legendFormat": "Metrics/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Database Insert Latency (p95)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, metrics_calculator_db_insert_duration_seconds_sum / metrics_calculator_db_insert_duration_seconds_count)",
+            "legendFormat": "p95 latency (s)"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Alerts Triggered",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(alert_engine_alerts_triggered_total[1h]))",
+            "legendFormat": "Last Hour"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "API Gateway Requests",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(api_gateway_http_requests_total[5m])",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "NATS Message Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(nats_messages_published_total[5m])",
+            "legendFormat": "Published/sec"
+          },
+          {
+            "expr": "rate(nats_messages_received_total[5m])",
+            "legendFormat": "Received/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+      }
+    ],
+    "refresh": "10s",
+    "schemaVersion": 27,
+    "version": 1
+  }
+}

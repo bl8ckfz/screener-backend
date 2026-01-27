@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-calculator
+  namespace: crypto-screener
+  labels:
+    app: metrics-calculator
+    component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-calculator
+  template:
+    metadata:
+      labels:
+        app: metrics-calculator
+        component: backend
+    spec:
+      containers:
+      - name: metrics-calculator
+        image: crypto-screener/metrics-calculator:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NATS_URL
+          value: "nats://nats:4222"
+        - name: TIMESCALEDB_URL
+          valueFrom:
+            secretKeyRef:
+              name: crypto-secrets
+              key: timescaledb-url
+        - name: METRICS_PORT
+          value: "8091"
+        - name: LOG_LEVEL
+          value: "info"
+        ports:
+        - name: metrics
+          containerPort: 8091
+          protocol: TCP
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8091
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8091
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-calculator
+  namespace: crypto-screener
+  labels:
+    app: metrics-calculator
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 8091
+    targetPort: 8091
+  selector:
+    app: metrics-calculator

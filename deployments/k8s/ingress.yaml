@@ -1,0 +1,71 @@
+# Ingress with TLS for API Gateway
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: crypto-screener
+  annotations:
+    # Enable TLS with cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # WebSocket support for /ws/alerts
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api.crypto-screener.yourdomain.com
+    secretName: crypto-screener-tls
+  rules:
+  - host: api.crypto-screener.yourdomain.com
+    http:
+      paths:
+      # API endpoints
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 80
+      # WebSocket endpoint
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 80
+      # Health check endpoint (no auth)
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 80
+---
+# ClusterIssuer for Let's Encrypt (cert-manager required)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: your-email@example.com  # CHANGE THIS
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx

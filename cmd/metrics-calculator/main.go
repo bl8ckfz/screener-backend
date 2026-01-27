@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,17 +14,17 @@ import (
 	"github.com/bl8ckfz/crypto-screener-backend/internal/ringbuffer"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/database"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
+	"github.com/bl8ckfz/crypto-screener-backend/pkg/observability"
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 func main() {
-	// Setup structured logging
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// Setup observability
+	logger := observability.NewLogger("metrics-calculator", observability.LevelInfo)
+	metrics := observability.GetCollector()
+	health := observability.NewHealthChecker()
 
-	log.Info().Msg("Starting Metrics Calculator service")
+	logger.Info("Starting Metrics Calculator service")
 
 	// Context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -34,7 +36,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Info().Msg("Shutdown signal received")
+		logger.Info("Shutdown signal received")
 		cancel()
 	}()
 
@@ -44,12 +46,20 @@ func main() {
 		timescaleURL = "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable"
 	}
 
-	log.Info().Str("url", timescaleURL).Msg("Connecting to TimescaleDB")
+	logger.Infof("Connecting to TimescaleDB: %s", timescaleURL)
 	dbPool, err := database.NewPostgresPool(ctx, timescaleURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to TimescaleDB")
+		logger.Fatal("Failed to connect to TimescaleDB", err)
 	}
 	defer dbPool.Close()
+
+	// Add database health check
+	health.AddCheck("timescaledb", func(ctx context.Context) error {
+		return dbPool.Ping(ctx)
+	})
+
+	// Track connection pool size
+	metrics.Gauge(observability.MetricDBConnectionPool).Set(float64(dbPool.Stat().TotalConns()))
 
 	// Get NATS URL from environment
 	natsURL := os.Getenv("NATS_URL")
@@ -58,7 +68,7 @@ func main() {
 	}
 
 	// Connect to NATS
-	log.Info().Str("url", natsURL).Msg("Connecting to NATS")
+	logger.Infof("Connecting to NATS: %s", natsURL)
 	nc, err := messaging.NewNATSConn(messaging.Config{
 		URL:             natsURL,
 		MaxReconnects:   -1,
@@ -66,83 +76,126 @@ func main() {
 		EnableJetStream: true,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to NATS")
+		logger.Fatal("Failed to connect to NATS", err)
 	}
 	defer nc.Close()
+
+	// Add NATS health check
+	health.AddCheck("nats", func(ctx context.Context) error {
+		if nc.IsClosed() {
+			return fmt.Errorf("NATS connection closed")
+		}
+		return nil
+	})
 
 	// Create JetStream context
 	js, err := messaging.NewJetStream(nc)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create JetStream context")
+		logger.Fatal("Failed to create JetStream context", err)
 	}
 
 	// Ensure METRICS stream exists
 	if err := messaging.CreateStream(js, "METRICS", []string{"metrics.>"}, 1*time.Hour); err != nil {
-		log.Fatal().Err(err).Msg("Failed to create METRICS stream")
+		logger.Fatal("Failed to create METRICS stream", err)
 	}
 
 	// Initialize metrics calculator
-	calc := calculator.NewMetricsCalculator(log.Logger)
+	calc := calculator.NewMetricsCalculator(logger.Zerolog())
 
 	// Initialize metrics persister with batch writing (batch size: 50)
-	persister := calculator.NewMetricsPersister(dbPool, log.Logger, 50)
+	persister := calculator.NewMetricsPersister(dbPool, logger.Zerolog(), 50)
 	defer persister.Close()
 
 	// Subscribe to all candle messages
-	log.Info().Msg("Subscribing to candles.1m.>")
+	// Use AckExplicit to manually acknowledge messages and allow consumer reuse
+	logger.Info("Subscribing to candles.1m.>")
 	sub, err := js.Subscribe("candles.1m.>", func(msg *nats.Msg) {
+		defer msg.Ack() // Acknowledge message after processing
 		// Parse candle from message
 		var candle ringbuffer.Candle
 		if err := json.Unmarshal(msg.Data, &candle); err != nil {
-			log.Error().Err(err).Msg("Failed to unmarshal candle")
+			logger.Error("Failed to unmarshal candle", err)
 			return
 		}
 
+		metrics.Counter(observability.MetricCandlesProcessed).Inc()
+
+		// Measure calculation time
+		defer metrics.Timer(observability.MetricCalculationDuration)()
+
 		// Add candle and calculate metrics
-		metrics, err := calc.AddCandle(candle)
+		metricsData, err := calc.AddCandle(candle)
 		if err != nil {
-			log.Error().Err(err).Str("symbol", candle.Symbol).Msg("Failed to calculate metrics")
+			logger.WithField("symbol", candle.Symbol).Error("Failed to calculate metrics", err)
 			return
 		}
 
 		// Only publish if we have meaningful metrics (buffer has enough data)
-		if metrics == nil || calc.GetBufferSize(candle.Symbol) < 15 {
+		if metricsData == nil || calc.GetBufferSize(candle.Symbol) < 15 {
 			return
 		}
 
+		metrics.Counter(observability.MetricMetricsCalculated).Inc()
+
 		// Persist metrics to TimescaleDB (async batch write)
-		persister.Enqueue(metrics)
+		persister.Enqueue(metricsData)
 
 		// Publish metrics to NATS
-		payload, err := json.Marshal(metrics)
+		payload, err := json.Marshal(metricsData)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal metrics")
+			logger.Error("Failed to marshal metrics", err)
 			return
 		}
 
 		subject := "metrics.calculated"
 		if _, err := js.Publish(subject, payload); err != nil {
-			log.Error().Err(err).Msg("Failed to publish metrics")
+			logger.Error("Failed to publish metrics", err)
+			metrics.Counter(observability.MetricNATSPublishErrors).Inc()
 			return
 		}
 
-		log.Debug().
-			Str("symbol", candle.Symbol).
-			Float64("vcp", metrics.VCP).
-			Float64("rsi", metrics.RSI).
-			Msg("Published metrics")
-	}, nats.Durable("metrics-calculator"), nats.DeliverAll())
+		metrics.Counter(observability.MetricNATSMessagesPublished).Inc()
+
+		logger.WithFields(map[string]interface{}{
+			"symbol": candle.Symbol,
+			"vcp":    metricsData.VCP,
+			"rsi":    metricsData.RSI,
+		}).Debug("Published metrics")
+	}, nats.Durable("metrics-calculator"), nats.DeliverAll(), nats.AckExplicit(), nats.Bind("CANDLES", "metrics-calculator"))
 
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to subscribe to candles")
+		logger.Fatal("Failed to subscribe to candles", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
-			log.Error().Err(err).Msg("Failed to unsubscribe")
+			logger.Error("Failed to unsubscribe", err)
 		}
 	}()
 
-	log.Info().Msg("Metrics Calculator service started")
+	// Start metrics server
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9091"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", metrics.Handler())
+	mux.HandleFunc("/health/live", health.LivenessHandler())
+	mux.HandleFunc("/health/ready", health.ReadinessHandler())
+
+	metricsServer := &http.Server{
+		Addr:    ":" + metricsPort,
+		Handler: mux,
+	}
+
+	go func() {
+		logger.Infof("Metrics server listening on :%s", metricsPort)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server error", err)
+		}
+	}()
+	defer metricsServer.Shutdown(context.Background())
+
+	logger.Info("Metrics Calculator service started")
 
 	// Wait for shutdown
 	<-ctx.Done()
@@ -150,5 +203,5 @@ func main() {
 	// Give time for final messages to process
 	time.Sleep(1 * time.Second)
 
-	log.Info().Msg("Metrics Calculator service stopped")
+	logger.Info("Metrics Calculator service stopped")
 }

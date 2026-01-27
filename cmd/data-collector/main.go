@@ -2,24 +2,25 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-
 	"github.com/bl8ckfz/crypto-screener-backend/internal/binance"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
+	"github.com/bl8ckfz/crypto-screener-backend/pkg/observability"
 )
 
 func main() {
-	// Setup structured logging
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// Setup observability
+	logger := observability.NewLogger("data-collector", observability.LevelInfo)
+	metrics := observability.GetCollector()
+	health := observability.NewHealthChecker()
 
-	log.Info().Msg("Starting Data Collector service")
+	logger.Info("Starting Data Collector service")
 
 	// Context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -31,7 +32,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Info().Msg("Shutdown signal received")
+		logger.Info("Shutdown signal received")
 		cancel()
 	}()
 
@@ -42,7 +43,7 @@ func main() {
 	}
 
 	// Connect to NATS
-	log.Info().Str("url", natsURL).Msg("Connecting to NATS")
+	logger.Infof("Connecting to NATS: %s", natsURL)
 	nc, err := messaging.NewNATSConn(messaging.Config{
 		URL:             natsURL,
 		MaxReconnects:   -1,
@@ -50,37 +51,71 @@ func main() {
 		EnableJetStream: true,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to NATS")
+		logger.Fatal("Failed to connect to NATS", err)
 	}
 	defer nc.Close()
+
+	// Add NATS health check
+	health.AddCheck("nats", func(ctx context.Context) error {
+		if nc.IsClosed() {
+			return fmt.Errorf("NATS connection closed")
+		}
+		return nil
+	})
 
 	// Create JetStream context
 	js, err := messaging.NewJetStream(nc)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create JetStream context")
+		logger.Fatal("Failed to create JetStream context", err)
 	}
 
 	// Ensure CANDLES stream exists
 	if err := messaging.CreateStream(js, "CANDLES", []string{"candles.>"}, 1*time.Hour); err != nil {
-		log.Fatal().Err(err).Msg("Failed to create CANDLES stream")
+		logger.Fatal("Failed to create CANDLES stream", err)
 	}
 
 	// Initialize Binance API client
-	client := binance.NewClient(log.Logger)
+	client := binance.NewClient(logger.Zerolog())
 
 	// Fetch active symbols
-	log.Info().Msg("Fetching active symbols from Binance")
+	logger.Info("Fetching active symbols from Binance")
 	symbols, err := client.GetActiveSymbols(ctx)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to fetch active symbols")
+		logger.Fatal("Failed to fetch active symbols", err)
 	}
 
-	log.Info().Int("count", len(symbols)).Msg("Fetched active symbols")
+	logger.WithField("count", len(symbols)).Info("Fetched active symbols")
+
+	// Track active connections
+	metrics.Gauge(observability.MetricWSConnections).Set(float64(len(symbols)))
 
 	// Create WebSocket connection manager
-	wsManager := binance.NewConnectionManager(symbols, js, log.Logger)
+	wsManager := binance.NewConnectionManager(symbols, js, logger.Zerolog())
 
-	log.Info().Msg("Data Collector service started")
+	// Start metrics server
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", metrics.Handler())
+	mux.HandleFunc("/health/live", health.LivenessHandler())
+	mux.HandleFunc("/health/ready", health.ReadinessHandler())
+
+	metricsServer := &http.Server{
+		Addr:    ":" + metricsPort,
+		Handler: mux,
+	}
+
+	go func() {
+		logger.Infof("Metrics server listening on :%s", metricsPort)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server error", err)
+		}
+	}()
+	defer metricsServer.Shutdown(context.Background())
+
+	logger.Info("Data Collector service started")
 
 	// Start collecting data in a goroutine
 	errCh := make(chan error, 1)
@@ -92,14 +127,14 @@ func main() {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			log.Error().Err(err).Msg("Connection manager error")
+			logger.Error("Connection manager error", err)
 		}
 	case <-ctx.Done():
-		log.Info().Msg("Context cancelled, shutting down")
+		logger.Info("Context cancelled, shutting down")
 	}
 
 	// Give connections time to close gracefully
 	time.Sleep(2 * time.Second)
 
-	log.Info().Msg("Data Collector service stopped")
+	logger.Info("Data Collector service stopped")
 }

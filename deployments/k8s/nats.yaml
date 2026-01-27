@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: crypto-screener
+  labels:
+    app: nats
+    component: messaging
+spec:
+  serviceName: nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+        component: messaging
+    spec:
+      containers:
+      - name: nats
+        image: nats:2.10-alpine
+        ports:
+        - name: client
+          containerPort: 4222
+        - name: monitoring
+          containerPort: 8222
+        - name: cluster
+          containerPort: 6222
+        command:
+        - nats-server
+        - --js
+        - --sd
+        - /data
+        - -m
+        - "8222"
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8222
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8222
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: crypto-screener
+  labels:
+    app: nats
+spec:
+  type: ClusterIP
+  ports:
+  - name: client
+    port: 4222
+    targetPort: 4222
+  - name: monitoring
+    port: 8222
+    targetPort: 8222
+  - name: cluster
+    port: 6222
+    targetPort: 6222
+  selector:
+    app: nats

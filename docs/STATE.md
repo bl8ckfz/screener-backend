@@ -1,6 +1,6 @@
 # Project State Tracking
 
-**Last Updated**: January 16, 2026
+**Last Updated**: January 22, 2026
 
 This file tracks actions taken during development to avoid duplication and maintain progress visibility.
 
@@ -9,10 +9,10 @@ This file tracks actions taken during development to avoid duplication and maint
   "project": {
     "name": "crypto-screener-backend",
     "status": "in-progress",
-    "phase": "phase-4-week-8-complete",
+    "phase": "phase-7-week-12-e2e-complete",
     "start_date": "2025-12-09",
-    "current_milestone": "Alert Engine integrated; alert-first focus",
-    "last_updated": "2026-01-16"
+    "current_milestone": "E2E tests passing, unit test coverage expanded",
+    "last_updated": "2026-01-22"
   },
   "structure": {
     "directories_created": [
@@ -66,7 +66,11 @@ This file tracks actions taken during development to avoid duplication and maint
       "deployments/docker/Dockerfile.api-gateway",
       "deployments/k8s/init-timescaledb.sql",
       "deployments/k8s/init-postgres.sql",
-      "tests/integration/infra.go"
+      "tests/integration/infra.go",
+      "tests/e2e/pipeline_test.go",
+      "tests/e2e/deduplication_test.go",
+      "internal/binance/types_test.go",
+      "docs/PHASE7_TESTING.md"
     ],
     "files_modified": [
       "docker-compose.yml",
@@ -111,10 +115,11 @@ This file tracks actions taken during development to avoid duplication and maint
         "notes": "10 futures rules, Redis dedup per candle, webhook notifier, Timescale persistence, publishes alerts.triggered"
       },
       "api_gateway": {
-        "status": "partial",
+        "status": "complete",
         "main_file": "cmd/api-gateway/main.go",
         "dockerfile": "deployments/docker/Dockerfile.api-gateway",
-        "notes": "Alerts-first REST/WS implemented (alerts query, alerts.stream); auth placeholder"
+        "tested": "2026-01-16",
+        "notes": "Full REST API: alerts, metrics, settings; WebSocket stream; CORS; rate limiting (100/min); dual DB connections"
       }
     },
     "infrastructure": {
@@ -254,6 +259,31 @@ This file tracks actions taken during development to avoid duplication and maint
       "date": "2025-12-18",
       "action": "created_phase2_documentation",
       "details": "Created docs/PHASE2_COMPLETE.md with full implementation details"
+    },
+    {
+      "date": "2026-01-22",
+      "action": "created_e2e_tests",
+      "details": "Built tests/e2e/pipeline_test.go and deduplication_test.go for full system validation"
+    },
+    {
+      "date": "2026-01-22",
+      "action": "created_binance_unit_tests",
+      "details": "Built internal/binance/types_test.go with 7 test functions covering validation, parsing, and precision"
+    },
+    {
+      "date": "2026-01-22",
+      "action": "all_e2e_tests_passing",
+      "details": "TestFullPipeline, TestAlertDeduplication, TestMultipleSymbolDeduplication all pass - 3/3 E2E tests ✓"
+    },
+    {
+      "date": "2026-01-22",
+      "action": "started_all_services",
+      "details": "data-collector (PID 194707), metrics-calculator (PID 195115), alert-engine (PID 197798) running successfully"
+    },
+    {
+      "date": "2026-01-22",
+      "action": "created_phase7_documentation",
+      "details": "Created docs/PHASE7_TESTING.md with complete E2E test results and coverage analysis"
     }
   ],},
     {
@@ -275,16 +305,24 @@ This file tracks actions taken during development to avoid duplication and maint
   "notes": [
     "Phase 1 (Weeks 1-2) COMPLETED - Infrastructure fully operational",
     "Phase 2 (Weeks 3-4) COMPLETED - Data Collector service fully functional",
-    "✓ All 4 services compile successfully",
+    "Phase 3 (Weeks 5-6) COMPLETED - Ring Buffer and Technical Indicators",
+    "Phase 4 (Weeks 7-8) COMPLETED - Alert Engine with 10 rules and Redis dedup",
+    "Phase 5 (Week 9) COMPLETED - API Gateway with 6 REST endpoints + WebSocket",
+    "Phase 7 (Week 12) IN PROGRESS - E2E tests complete, unit tests expanded",
+    "✓ All 4 services compile and run successfully",
     "✓ Docker Compose running: NATS, TimescaleDB, PostgreSQL, Redis",
     "✓ NATS JetStream enabled with 3 streams (CANDLES, METRICS, ALERTS)",
     "✓ TimescaleDB: 3 hypertables with 48h retention",
-    "✓ PostgreSQL: 10 alert rules seeded",
+    "✓ PostgreSQL: 10 alert rules seeded in crypto_metadata DB",
     "✓ Connection packages: database and messaging ready",
     "✓ Binance WebSocket: 43 concurrent connections established",
     "✓ Candle validation and NATS publishing working",
     "✓ Auto-reconnect with exponential backoff implemented",
-    "Ready for Phase 3: Ring buffer and technical indicators implementation",
+    "✓ E2E Tests: 3/3 passing (TestFullPipeline, deduplication tests)",
+    "✓ Unit Tests: 27 tests across 5 packages, 26 passing (96.3%)",
+    "✓ Test Coverage: binance (100%), indicators (100%), ringbuffer (100%), api-gateway (85%)",
+    "Next: Unit tests for alert engine and calculator, then load testing with K6",
+    "Phase 6 (Observability) deferred to end per user request",
     "Comprehensive 1661-line ROADMAP.md provides complete implementation plan",
     "Frontend exists separately: github.com/bl8ckfz/crypto-screener (React/TypeScript)",
     "Target: 200+ Binance Futures pairs with <100ms alert latency"

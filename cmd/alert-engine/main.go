@@ -87,7 +87,7 @@ func main() {
 		
 		// Test Redis connection
 		if err := rdb.Ping(ctx).Err(); err != nil {
-			logger.Warn("Failed to connect to Redis, using in-memory deduplication", err)
+			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, using in-memory deduplication")
 			rdb.Close()
 			rdb = nil
 		} else {

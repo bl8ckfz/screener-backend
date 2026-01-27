@@ -1,0 +1,133 @@
+# CronJob for automated TimescaleDB backups
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: timescaledb-backup
+  namespace: crypto-screener
+spec:
+  # Run daily at 2 AM UTC
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: timescaledb-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-sa
+          containers:
+          - name: backup
+            image: postgres:16-alpine
+            env:
+            - name: PGHOST
+              value: "timescaledb"
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: crypto-secrets
+                  key: timescaledb-user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: crypto-secrets
+                  key: timescaledb-password
+            - name: PGDATABASE
+              value: "crypto"
+            - name: BACKUP_RETENTION_DAYS
+              value: "7"
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              BACKUP_FILE="/backup/timescaledb_${TIMESTAMP}.sql.gz"
+              
+              echo "Starting backup at ${TIMESTAMP}"
+              
+              # Create backup with compression
+              pg_dump -h ${PGHOST} -p ${PGPORT} -U ${PGUSER} -d ${PGDATABASE} \
+                --format=plain \
+                --no-owner \
+                --no-acl \
+                | gzip > ${BACKUP_FILE}
+              
+              # Verify backup file exists
+              if [ ! -f "${BACKUP_FILE}" ]; then
+                echo "ERROR: Backup file not created"
+                exit 1
+              fi
+              
+              BACKUP_SIZE=$(du -h ${BACKUP_FILE} | cut -f1)
+              echo "Backup completed: ${BACKUP_FILE} (${BACKUP_SIZE})"
+              
+              # Delete backups older than retention period
+              find /backup -name "timescaledb_*.sql.gz" -mtime +${BACKUP_RETENTION_DAYS} -delete
+              
+              echo "Old backups cleaned up"
+              
+              # List remaining backups
+              echo "Available backups:"
+              ls -lh /backup/timescaledb_*.sql.gz 2>/dev/null || echo "No backups found"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+---
+# PersistentVolumeClaim for backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: crypto-screener
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard  # Change based on your cluster
+---
+# ServiceAccount for backup job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-sa
+  namespace: crypto-screener
+---
+# Role for backup operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-role
+  namespace: crypto-screener
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+---
+# RoleBinding for backup service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-rolebinding
+  namespace: crypto-screener
+subjects:
+- kind: ServiceAccount
+  name: backup-sa
+  namespace: crypto-screener
+roleRef:
+  kind: Role
+  name: backup-role
+  apiGroup: rbac.authorization.k8s.io

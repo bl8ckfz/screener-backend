@@ -56,20 +56,19 @@ type KlineData struct {
 	TakerBuyQuoteVolume  string `json:"Q"` // Taker buy quote asset volume
 }
 
-// Validate checks if the kline data is valid
-func (k *KlineData) Validate() bool {
-	// Check for non-null prices
+// ValidateFields checks if the kline data has all required fields
+func (k *KlineData) ValidateFields() bool {
+	// Check for non-empty prices
 	if k.OpenPrice == "" || k.ClosePrice == "" || k.HighPrice == "" || k.LowPrice == "" {
 		return false
 	}
 	
-	// Check for positive volume
+	// Check for non-empty volume
 	if k.BaseAssetVolume == "" || k.QuoteAssetVolume == "" {
 		return false
 	}
 	
-	// Kline must be closed to be processed
-	return k.IsClosed
+	return true
 }
 
 // Candle represents a processed candlestick for internal use

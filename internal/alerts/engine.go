@@ -89,10 +89,19 @@ func (e *Engine) Evaluate(ctx context.Context, metrics *Metrics) ([]*Alert, erro
 				Price:       metrics.LastPrice,
 				Metadata: map[string]interface{}{
 					"vcp":              metrics.VCP,
+					"price_change_5m":  metrics.PriceChange5m,
+					"price_change_15m": metrics.PriceChange15m,
 					"price_change_1h":  metrics.PriceChange1h,
 					"price_change_8h":  metrics.PriceChange8h,
+					"price_change_1d":  metrics.PriceChange1d,
+					"volume_5m":        metrics.Candle5m.Volume,
+					"volume_15m":       metrics.Candle15m.Volume,
+					"volume_1h":        metrics.Candle1h.Volume,
+					"volume_8h":        metrics.Candle8h.Volume,
+					"volume_ratio_5m":  metrics.VolumeRatio5m,
+					"volume_ratio_15m": metrics.VolumeRatio15m,
 					"volume_ratio_1h":  metrics.VolumeRatio1h,
-					"candle_1h_volume": metrics.Candle1h.Volume,
+					"volume_ratio_8h":  metrics.VolumeRatio8h,
 				},
 			}
 

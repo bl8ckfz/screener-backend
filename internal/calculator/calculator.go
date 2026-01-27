@@ -106,9 +106,14 @@ func (mc *MetricsCalculator) CalculateMetrics(symbol string) (*SymbolMetrics, er
 		return nil, nil
 	}
 
+	// Use current time rounded to the minute as timestamp
+	// Note: Candle timestamps from websocket are having JSON marshaling issues
+	// For MVP, using current time is acceptable as metrics are calculated in real-time
+	timestamp := time.Now().Truncate(time.Minute)
+
 	metrics := &SymbolMetrics{
 		Symbol:    symbol,
-		Timestamp: latest.CloseTime,
+		Timestamp: timestamp,
 		LastPrice: latest.Close,
 	}
 

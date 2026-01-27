@@ -217,9 +217,29 @@ func (c *connection) processMessage(data []byte) error {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 	
-	// Validate kline data
-	if !event.Kline.Validate() {
-		return fmt.Errorf("invalid kline data")
+	// Debug: log raw event occasionally for troubleshooting
+	// Commented out to reduce log volume
+	// c.logger.Debug().RawJSON("event", data).Msg("received kline event")
+	
+	// Only process closed candles (complete 1-minute periods)
+	// Binance sends updates every second, we only want the final one
+	if !event.Kline.IsClosed {
+		return nil // Skip without error - this is normal
+	}
+	
+	// Validate kline data (prices and volume present)
+	if !event.Kline.ValidateFields() {
+		c.logger.Warn().
+			Str("open", event.Kline.OpenPrice).
+			Str("close", event.Kline.ClosePrice).
+			Str("high", event.Kline.HighPrice).
+			Str("low", event.Kline.LowPrice).
+			Str("volume", event.Kline.BaseAssetVolume).
+			Str("quote_volume", event.Kline.QuoteAssetVolume).
+			Bool("is_closed", event.Kline.IsClosed).
+			RawJSON("raw_event", data).
+			Msg("kline validation failed")
+		return nil // Don't error, just skip
 	}
 	
 	// Convert to internal Candle format

@@ -1,0 +1,280 @@
+# Network Policies for security hardening
+
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: crypto-screener
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+# Allow API Gateway to receive traffic from Ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api-gateway
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  # From Ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  # From Prometheus for metrics
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# Allow API Gateway to access databases and NATS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-egress
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Egress
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+  # Allow TimescaleDB
+  - to:
+    - podSelector:
+        matchLabels:
+          app: timescaledb
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Allow Data Collector to access NATS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-collector
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: data-collector
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # From Prometheus for metrics
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8090
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow Binance API (external)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 9443
+  # Allow NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+---
+# Allow Metrics Calculator to access databases and NATS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-calculator
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: metrics-calculator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # From Prometheus for metrics
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8091
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+  # Allow TimescaleDB
+  - to:
+    - podSelector:
+        matchLabels:
+          app: timescaledb
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Allow Alert Engine to access all dependencies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alert-engine
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: alert-engine
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # From Prometheus for metrics
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8092
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow external webhooks (Discord, Telegram)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+  # Allow Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow TimescaleDB
+  - to:
+    - podSelector:
+        matchLabels:
+          app: timescaledb
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Allow Prometheus to scrape all services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scraping
+  namespace: crypto-screener
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+  - Egress
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow scraping all services
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8222

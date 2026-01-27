@@ -1,0 +1,56 @@
+# Combined Dockerfile for Data Collector + Metrics Calculator
+# This reduces memory footprint by sharing the Go runtime
+
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build both binaries with optimizations
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o data-collector \
+    cmd/data-collector/main.go
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o metrics-calculator \
+    cmd/metrics-calculator/main.go
+
+# Final stage - minimal alpine image
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binaries
+COPY --from=builder /app/data-collector /app/
+COPY --from=builder /app/metrics-calculator /app/
+
+# Create startup script
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'echo "Starting Data Collector..."' >> /app/start.sh && \
+    echo '/app/data-collector &' >> /app/start.sh && \
+    echo 'COLLECTOR_PID=$!' >> /app/start.sh && \
+    echo 'echo "Data Collector started with PID: $COLLECTOR_PID"' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'sleep 5' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'echo "Starting Metrics Calculator..."' >> /app/start.sh && \
+    echo '/app/metrics-calculator &' >> /app/start.sh && \
+    echo 'CALCULATOR_PID=$!' >> /app/start.sh && \
+    echo 'echo "Metrics Calculator started with PID: $CALCULATOR_PID"' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'echo "Both services running. Waiting..."' >> /app/start.sh && \
+    echo 'wait' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Run both services
+CMD ["/app/start.sh"]

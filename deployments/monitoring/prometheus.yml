@@ -1,0 +1,65 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'crypto-screener'
+    environment: 'development'
+
+scrape_configs:
+  # Data Collector metrics
+  - job_name: 'data-collector'
+    static_configs:
+      - targets: ['172.19.0.1:8090']
+        labels:
+          service: 'data-collector'
+    metrics_path: /metrics
+
+  # Metrics Calculator metrics
+  - job_name: 'metrics-calculator'
+    static_configs:
+      - targets: ['172.19.0.1:8091']
+        labels:
+          service: 'metrics-calculator'
+    metrics_path: /metrics
+
+  # Alert Engine metrics
+  - job_name: 'alert-engine'
+    static_configs:
+      - targets: ['172.19.0.1:8092']
+        labels:
+          service: 'alert-engine'
+    metrics_path: /metrics
+
+  # API Gateway metrics
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['172.19.0.1:8080']
+        labels:
+          service: 'api-gateway'
+    metrics_path: /metrics
+
+  # NATS Server metrics
+  - job_name: 'nats'
+    static_configs:
+      - targets: ['crypto-nats:8222']
+        labels:
+          service: 'nats'
+    metrics_path: /varz
+
+  # PostgreSQL/TimescaleDB metrics (if postgres_exporter is installed)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'timescaledb'
+    metrics_path: /metrics
+
+# Alerting rules (optional - for production)
+# rule_files:
+#   - 'alerts/*.yml'
+
+# Alertmanager configuration (optional - for production)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
