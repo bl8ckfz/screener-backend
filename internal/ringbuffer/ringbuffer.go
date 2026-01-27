@@ -7,16 +7,16 @@ import (
 
 // Candle represents a single candlestick data point
 type Candle struct {
-	Symbol         string
-	OpenTime       time.Time
-	CloseTime      time.Time
-	Open           float64
-	High           float64
-	Low            float64
-	Close          float64
-	Volume         float64
-	QuoteVolume    float64
-	NumberOfTrades int64
+	Symbol         string    `json:"symbol"`
+	OpenTime       time.Time `json:"open_time"`
+	CloseTime      time.Time `json:"close_time"`
+	Open           float64   `json:"open"`
+	High           float64   `json:"high"`
+	Low            float64   `json:"low"`
+	Close          float64   `json:"close"`
+	Volume         float64   `json:"volume"`
+	QuoteVolume    float64   `json:"quote_volume"`
+	NumberOfTrades int64     `json:"number_of_trades"`
 }
 
 // RingBuffer is a fixed-size circular buffer for storing candles
