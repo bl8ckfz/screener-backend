@@ -37,9 +37,11 @@ railway add postgresql
 ```
 
 This creates a PostgreSQL database with:
-- TimescaleDB extension (install after provisioning)
+- Standard PostgreSQL 16 (TimescaleDB NOT included)
 - Automatic backups
 - Connection URL in `DATABASE_URL` environment variable
+
+> **Note**: Railway's managed PostgreSQL does not include TimescaleDB extension. We use standard PostgreSQL tables with time-based indexes instead. For production deployments requiring TimescaleDB features (compression, automatic retention), consider TimescaleDB Cloud or self-hosted Kubernetes deployment.
 
 ### 5. Add NATS (using Docker)
 ```bash
@@ -90,9 +92,11 @@ railway variables set LOG_LEVEL=info
 # Connect to PostgreSQL
 railway connect postgres
 
-# Run migrations
-\i deployments/k8s/init-timescaledb.sql
+# Run migrations (use Railway-specific init file)
+\i deployments/railway/init-postgres.sql
 ```
+
+> **Important**: Use `deployments/railway/init-postgres.sql` which creates standard PostgreSQL tables. DO NOT use `deployments/k8s/init-timescaledb.sql` as it contains TimescaleDB-specific commands that will fail on Railway's standard PostgreSQL.
 
 ### 9. Expose API Gateway
 

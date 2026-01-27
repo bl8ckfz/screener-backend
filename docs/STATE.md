@@ -123,13 +123,23 @@ This file tracks actions taken during development to avoid duplication and maint
       }
     },
     "infrastructure": {
-      "docker_compose": "running",
-      "docker_compose_services": ["nats", "timescaledb", "postgres", "redis"],
-      "nats_jetstream": "enabled",
-      "nats_streams": ["CANDLES", "METRICS", "ALERTS"],
-      "timescaledb_hypertables": ["candles_1m", "metrics_calculated", "alert_history"],
-      "postgres_tables": ["user_settings", "alert_rules"],
-      "alert_rules_count": 10,
+      "local_dev": {
+        "docker_compose": "running",
+        "docker_compose_services": ["nats", "timescaledb", "postgres", "redis"],
+        "nats_jetstream": "enabled",
+        "timescaledb_hypertables": ["candles_1m", "metrics_calculated", "alert_history"]
+      },
+      "railway_production": {
+        "platform": "Railway.app",
+        "deployed_services": ["data-collector", "metrics-calculator", "alert-engine", "api-gateway", "nats", "postgres", "redis"],
+        "database_type": "PostgreSQL 16 (standard, NOT TimescaleDB)",
+        "nats_jetstream": "enabled",
+        "nats_streams": ["CANDLES", "METRICS", "ALERTS"],
+        "postgres_tables": ["candles_1m", "metrics_calculated", "alert_history", "user_settings", "alert_rules"],
+        "alert_rules_count": 10,
+        "status": "operational with known issues (alert persistence failing)",
+        "deployment_date": "2026-01-27"
+      },
       "terraform": "not_created",
       "helm_charts": "not_created",
       "ci_cd": "created",
@@ -155,10 +165,11 @@ This file tracks actions taken during development to avoid duplication and maint
     },
     "external_services": {
       "binance_api": "live",
-      "timescaledb": "running",
-      "postgresql_supabase": "planned",
-      "nats_jetstream": "running",
-      "redis": "running"
+      "database_local": "TimescaleDB (docker-compose)",
+      "database_railway": "PostgreSQL 16 (standard, NO TimescaleDB extension)",
+      "postgresql_supabase": "not_used",
+      "nats_jetstream": "running (local + railway)",
+      "redis": "running (local + railway)"
     }
   },
   "actions_completed": [
@@ -284,6 +295,21 @@ This file tracks actions taken during development to avoid duplication and maint
       "date": "2026-01-22",
       "action": "created_phase7_documentation",
       "details": "Created docs/PHASE7_TESTING.md with complete E2E test results and coverage analysis"
+    },
+    {
+      "date": "2026-01-27",
+      "action": "deployed_to_railway",
+      "details": "Deployed all 4 services to Railway.app: data-collector, metrics-calculator, alert-engine, api-gateway + NATS + PostgreSQL + Redis"
+    },
+    {
+      "date": "2026-01-27",
+      "action": "identified_alert_persistence_issue",
+      "details": "Alert engine running but failing to persist alerts due to duplicate key constraint on (time, symbol, rule_type) composite primary key"
+    },
+    {
+      "date": "2026-01-27",
+      "action": "documented_railway_status",
+      "details": "Created docs/RAILWAY_DEPLOYMENT_STATUS.md with comprehensive analysis of TimescaleDB vs PostgreSQL and current deployment state"
     }
   ],},
     {
@@ -308,12 +334,14 @@ This file tracks actions taken during development to avoid duplication and maint
     "Phase 3 (Weeks 5-6) COMPLETED - Ring Buffer and Technical Indicators",
     "Phase 4 (Weeks 7-8) COMPLETED - Alert Engine with 10 rules and Redis dedup",
     "Phase 5 (Week 9) COMPLETED - API Gateway with 6 REST endpoints + WebSocket",
-    "Phase 7 (Week 12) IN PROGRESS - E2E tests complete, unit tests expanded",
+    "Phase 7 (Week 12) COMPLETED - E2E tests passing, deployed to Railway.app",
     "✓ All 4 services compile and run successfully",
-    "✓ Docker Compose running: NATS, TimescaleDB, PostgreSQL, Redis",
+    "✓ LOCAL: Docker Compose running: NATS, TimescaleDB, PostgreSQL, Redis",
+    "✓ RAILWAY: All services deployed (data-collector, metrics-calculator, alert-engine, api-gateway)",
     "✓ NATS JetStream enabled with 3 streams (CANDLES, METRICS, ALERTS)",
-    "✓ TimescaleDB: 3 hypertables with 48h retention",
-    "✓ PostgreSQL: 10 alert rules seeded in crypto_metadata DB",
+    "✓ LOCAL: TimescaleDB with 3 hypertables and 48h retention",
+    "✓ RAILWAY: Standard PostgreSQL 16 (NO TimescaleDB extension, cost optimization)",
+    "✓ Database: 10 alert rules loaded, 258+ metrics persisted, 43 symbols tracked",
     "✓ Connection packages: database and messaging ready",
     "✓ Binance WebSocket: 43 concurrent connections established",
     "✓ Candle validation and NATS publishing working",
@@ -321,11 +349,14 @@ This file tracks actions taken during development to avoid duplication and maint
     "✓ E2E Tests: 3/3 passing (TestFullPipeline, deduplication tests)",
     "✓ Unit Tests: 27 tests across 5 packages, 26 passing (96.3%)",
     "✓ Test Coverage: binance (100%), indicators (100%), ringbuffer (100%), api-gateway (85%)",
-    "Next: Unit tests for alert engine and calculator, then load testing with K6",
+    "⚠️ KNOWN ISSUE: Alert persistence failing on Railway (duplicate key constraint on composite PK)",
+    "⚠️ TimescaleDB references in code/docs are deployment-specific (Kubernetes uses TimescaleDB, Railway uses PostgreSQL)",
+    "Next: Fix alert_history schema, complete frontend integration, load testing with K6",
     "Phase 6 (Observability) deferred to end per user request",
     "Comprehensive 1661-line ROADMAP.md provides complete implementation plan",
     "Frontend exists separately: github.com/bl8ckfz/crypto-screener (React/TypeScript)",
-    "Target: 200+ Binance Futures pairs with <100ms alert latency"
+    "Target: 200+ Binance Futures pairs with <100ms alert latency",
+    "Documentation: See docs/RAILWAY_DEPLOYMENT_STATUS.md for detailed Railway deployment analysis"
   ]
 }
 ```

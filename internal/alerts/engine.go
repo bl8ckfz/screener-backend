@@ -270,19 +270,6 @@ func (e *Engine) evaluateBottomHunter(c *AlertCriteria, m *Metrics) bool {
 		m.Candle5m.Volume > m.Candle15m.Volume/2 &&
 		m.Candle5m.Volume > m.Candle1h.Volume/8
 }
-	if c.Volume5mMin != nil && m.Candle5m.Volume < *c.Volume5mMin {
-		return false
-	}
-	if c.VolumeRatio5m15m != nil && m.Candle15m.Volume > 0 && 
-		(*c.VolumeRatio5m15m)*m.Candle5m.Volume < m.Candle15m.Volume {
-		return false
-	}
-	if c.VolumeRatio5m1h != nil && m.Candle1h.Volume > 0 && 
-		(*c.VolumeRatio5m1h)*m.Candle5m.Volume < m.Candle1h.Volume {
-		return false
-	}
-	return true
-}
 
 // evaluateTopHunter: Detect reversal from top
 // Frontend logic: change_1h > 0.7 && change_15m > 0.6 && change_5m < -0.5 &&

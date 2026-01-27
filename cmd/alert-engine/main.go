@@ -189,6 +189,19 @@ func main() {
 			return
 		}
 
+		// DEBUG: Log metrics to identify data issues
+		logger.WithFields(map[string]interface{}{
+			"symbol":       metricsData.Symbol,
+			"price":        metricsData.LastPrice,
+			"change_5m":    metricsData.PriceChange5m,
+			"change_15m":   metricsData.PriceChange15m,
+			"change_1h":    metricsData.PriceChange1h,
+			"change_8h":    metricsData.PriceChange8h,
+			"change_1d":    metricsData.PriceChange1d,
+			"volume_5m":    metricsData.Candle5m.Volume,
+			"volume_1h":    metricsData.Candle1h.Volume,
+		}).Debug("Received metrics for evaluation")
+
 		metrics.Counter(observability.MetricNATSMessagesReceived).Inc()
 
 		// Measure evaluation time

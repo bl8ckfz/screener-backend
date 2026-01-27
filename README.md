@@ -28,11 +28,13 @@ The system consists of 4 microservices:
 ## Technology Stack
 
 - **Language**: Go 1.22+
-- **Orchestration**: Kubernetes (K3s/K8s)
-- **Database**: TimescaleDB (time-series) + PostgreSQL (metadata)
+- **Orchestration**: Kubernetes (K3s/K8s) or Railway.app
+- **Database**: TimescaleDB (Kubernetes) / PostgreSQL (Railway)
 - **Message Queue**: NATS with JetStream
 - **Monitoring**: Prometheus + Grafana
 - **IaC**: Terraform + Helm
+
+> **Note**: Database choice is deployment-specific. Kubernetes deployments use TimescaleDB for time-series optimization. Railway.app deployments use standard PostgreSQL for cost efficiency and simplicity.
 
 ## Documentation
 
@@ -40,10 +42,18 @@ The system consists of 4 microservices:
 
 ## Project Status
 
-✅ **Status**: Phase 1, Week 1 Complete - Foundation Setup  
+✅ **Status**: Phase 7 Complete - Deployed to Railway.app  
 📅 **Start Date**: December 9, 2025  
-⏱️ **Timeline**: 14 weeks to production  
-💰 **Cost**: $52-247/month depending on infrastructure choice
+🚀 **Railway Deployment**: January 27, 2026  
+⏱️ **Timeline**: 14 weeks to production (Week 12)  
+💰 **Cost**: $5/month (Railway free tier) to $247/month (full Kubernetes)
+
+### Deployment Options
+- **Development**: Railway.app ($5/month) - Currently deployed ✅
+- **Staging**: Railway.app with vertical scaling ($15-30/month)
+- **Production**: Kubernetes with TimescaleDB ($52-247/month)
+
+See [docs/RAILWAY_DEPLOYMENT_STATUS.md](docs/RAILWAY_DEPLOYMENT_STATUS.md) for current deployment details.
 
 ## Quick Start
 
