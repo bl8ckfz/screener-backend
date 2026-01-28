@@ -58,9 +58,15 @@ func main() {
 				rdb.Close()
 				rdb = nil
 			} else {
-			logger.Info("Redis connected for ticker cache")
-			defer rdb.Close()
+				logger.Info("Redis connected for ticker cache")
+				defer rdb.Close()
+			}
 		}
+	}
+
+	// Connect to NATS
+	logger.Infof("Connecting to NATS: %s", natsURL)
+	nc, err := messaging.NewNATSConn(messaging.Config{
 		URL:             natsURL,
 		MaxReconnects:   -1,
 		ReconnectWait:   2 * time.Second,
