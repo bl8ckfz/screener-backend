@@ -154,6 +154,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/alerts", s.cors(s.rateLimit(s.authOptional(s.handleAlerts))))
 	mux.HandleFunc("/api/metrics/", s.cors(s.rateLimit(s.authOptional(s.handleMetrics))))
 	mux.HandleFunc("/api/klines", s.cors(s.rateLimit(s.authOptional(s.handleKlines))))
+	mux.HandleFunc("/api/tickers", s.cors(s.rateLimit(s.authOptional(s.handleTickers))))
 	mux.HandleFunc("/api/settings", s.cors(s.rateLimit(s.authRequired(s.handleSettings))))
 	mux.HandleFunc("/ws/alerts", s.cors(s.authOptional(s.handleAlertsWS)))
 	return mux
@@ -550,6 +551,69 @@ func (s *server) handleKlines(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func (s *server) handleTickers(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	requested := strings.TrimSpace(q.Get("symbols"))
+	var symbolSet map[string]struct{}
+	if requested != "" {
+		symbolSet = make(map[string]struct{})
+		for _, raw := range strings.Split(requested, ",") {
+			symbol := strings.ToUpper(strings.TrimSpace(raw))
+			if symbol != "" {
+				symbolSet[symbol] = struct{}{}
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	binanceURL := "https://fapi.binance.com/fapi/v1/ticker/24hr"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, binanceURL, nil)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "request_failed", err.Error())
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.writeError(w, http.StatusBadGateway, "upstream_failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(body)
+		return
+	}
+
+	var payload []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		s.writeError(w, http.StatusBadGateway, "decode_failed", err.Error())
+		return
+	}
+
+	if symbolSet != nil {
+		filtered := make([]map[string]interface{}, 0, len(symbolSet))
+		for _, item := range payload {
+			symbolValue, ok := item["symbol"].(string)
+			if !ok {
+				continue
+			}
+			if _, exists := symbolSet[symbolValue]; exists {
+				filtered = append(filtered, item)
+			}
+		}
+		payload = filtered
+	}
+
+	s.writeJSON(w, http.StatusOK, payload)
 }
 
 func isValidKlineInterval(interval string) bool {
