@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bl8ckfz/crypto-screener-backend/internal/ringbuffer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
@@ -224,6 +225,45 @@ func (mp *MetricsPersister) Close() error {
 
 	// Give time for final batch to write
 	time.Sleep(1 * time.Second)
+
+	return nil
+}
+
+// PersistCandle writes a single 1m candle to TimescaleDB
+// This is called synchronously for each candle to ensure we have historical data
+func (mp *MetricsPersister) PersistCandle(ctx context.Context, candle ringbuffer.Candle) error {
+	query := `
+		INSERT INTO candles_1m (
+			time, symbol,
+			open, high, low, close,
+			volume, quote_volume,
+			number_of_trades
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (time, symbol) DO UPDATE SET
+			open = EXCLUDED.open,
+			high = EXCLUDED.high,
+			low = EXCLUDED.low,
+			close = EXCLUDED.close,
+			volume = EXCLUDED.volume,
+			quote_volume = EXCLUDED.quote_volume,
+			number_of_trades = EXCLUDED.number_of_trades
+	`
+
+	_, err := mp.pool.Exec(ctx, query,
+		candle.OpenTime,
+		candle.Symbol,
+		candle.Open,
+		candle.High,
+		candle.Low,
+		candle.Close,
+		candle.Volume,
+		candle.QuoteVolume,
+		candle.NumberOfTrades,
+	)
+
+	if err != nil {
+		return fmt.Errorf("insert candle: %w", err)
+	}
 
 	return nil
 }

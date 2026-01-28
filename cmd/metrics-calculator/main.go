@@ -128,6 +128,15 @@ func main() {
 
 		metrics.Counter(observability.MetricCandlesProcessed).Inc()
 
+		// Persist candle to TimescaleDB (synchronous to ensure historical data)
+		// This is critical for ring buffer initialization on restart
+		candleCtx, candleCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer candleCancel()
+		if err := persister.PersistCandle(candleCtx, candle); err != nil {
+			logger.WithField("symbol", candle.Symbol).Error("Failed to persist candle", err)
+			// Don't return - continue processing even if DB write fails
+		}
+
 		// Measure calculation time
 		defer metrics.Timer(observability.MetricCalculationDuration)()
 
