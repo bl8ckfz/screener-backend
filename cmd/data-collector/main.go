@@ -12,6 +12,7 @@ import (
 	"github.com/bl8ckfz/crypto-screener-backend/internal/binance"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/messaging"
 	"github.com/bl8ckfz/crypto-screener-backend/pkg/observability"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -40,6 +41,25 @@ func main() {
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
 		natsURL = "nats://localhost:4222"
+	}
+
+	// Optional Redis for ticker cache
+	redisURL := os.Getenv("REDIS_URL")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	var rdb *redis.Client
+	if redisURL != "" && redisURL != "disabled" {
+		logger.WithField("url", redisURL).Info("Connecting to Redis")
+		rdb = redis.NewClient(&redis.Options{
+			Addr:     redisURL,
+			Password: redisPassword,
+		})
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
+			rdb.Close()
+			rdb = nil
+		} else {
+			defer rdb.Close()
+		}
 	}
 
 	// Connect to NATS
@@ -116,6 +136,11 @@ func main() {
 	defer metricsServer.Shutdown(context.Background())
 
 	logger.Info("Data Collector service started")
+
+	// Start Binance ticker stream to populate Redis cache
+	if rdb != nil {
+		go binance.StartTickerStream(ctx, rdb, logger.Zerolog())
+	}
 
 	// Start collecting data in a goroutine
 	errCh := make(chan error, 1)

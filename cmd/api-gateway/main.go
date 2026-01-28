@@ -23,6 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"github.com/redis/go-redis/v9"
 )
 
 type server struct {
@@ -31,6 +32,7 @@ type server struct {
 	health      *observability.HealthChecker
 	db          *pgxpool.Pool
 	metadataDB  *pgxpool.Pool
+	redis       *redis.Client
 	nc          *nats.Conn
 	upgrader    websocket.Upgrader
 	authSecret  string
@@ -89,6 +91,8 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 	natsURL := getenv("NATS_URL", "nats://localhost:4222")
 	dbURL := getenv("TIMESCALEDB_URL", "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable")
 	authSecret := os.Getenv("SUPABASE_JWT_SECRET")
+	redisURL := getenv("REDIS_URL", "")
+	redisPassword := getenv("REDIS_PASSWORD", "")
 
 	nc, err := messaging.NewNATSConn(messaging.Config{URL: natsURL, MaxReconnects: -1, ReconnectWait: 2 * time.Second, EnableJetStream: true})
 	if err != nil {
@@ -114,12 +118,32 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 		return db.Ping(ctx)
 	})
 
+	// Optional Redis connection for ticker cache
+	var rdb *redis.Client
+	if redisURL != "" && redisURL != "disabled" {
+		logger.WithField("url", redisURL).Info("Connecting to Redis")
+		rdb = redis.NewClient(&redis.Options{
+			Addr:     redisURL,
+			Password: redisPassword,
+		})
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
+			rdb.Close()
+			rdb = nil
+		} else {
+			health.AddCheck("redis", func(ctx context.Context) error {
+				return rdb.Ping(ctx).Err()
+			})
+		}
+	}
+
 	return &server{
 		logger:     logger,
 		metrics:    metrics,
 		health:     health,
 		db:         db,
 		metadataDB: db,
+		redis:      rdb,
 		nc:         nc,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -564,6 +588,52 @@ func (s *server) handleTickers(w http.ResponseWriter, r *http.Request) {
 			if symbol != "" {
 				symbolSet[symbol] = struct{}{}
 			}
+		}
+	}
+
+	// Serve from Redis cache when available
+	if s.redis != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		var payload []map[string]interface{}
+		if symbolSet != nil {
+			symbols := make([]string, 0, len(symbolSet))
+			for symbol := range symbolSet {
+				symbols = append(symbols, symbol)
+			}
+			values, err := s.redis.HMGet(ctx, "tickers", symbols...).Result()
+			if err == nil {
+				for _, value := range values {
+					if value == nil {
+						continue
+					}
+					str, ok := value.(string)
+					if !ok {
+						continue
+					}
+					var item map[string]interface{}
+					if err := json.Unmarshal([]byte(str), &item); err == nil {
+						payload = append(payload, item)
+					}
+				}
+			}
+		} else {
+			values, err := s.redis.HGetAll(ctx, "tickers").Result()
+			if err == nil {
+				payload = make([]map[string]interface{}, 0, len(values))
+				for _, str := range values {
+					var item map[string]interface{}
+					if err := json.Unmarshal([]byte(str), &item); err == nil {
+						payload = append(payload, item)
+					}
+				}
+			}
+		}
+
+		if len(payload) > 0 {
+			s.writeJSON(w, http.StatusOK, payload)
+			return
 		}
 	}
 
