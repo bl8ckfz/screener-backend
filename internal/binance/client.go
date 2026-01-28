@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -17,6 +19,9 @@ const (
 	
 	// ExchangeInfoEndpoint provides trading pair metadata
 	ExchangeInfoEndpoint = "/fapi/v1/exchangeInfo"
+	
+	// Ticker24hEndpoint provides 24-hour ticker statistics
+	Ticker24hEndpoint = "/fapi/v1/ticker/24hr"
 )
 
 // Client handles HTTP requests to Binance Futures API
@@ -43,20 +48,21 @@ func NewClient(logger zerolog.Logger) *Client {
 }
 
 // GetActiveSymbols fetches active USDT-margined perpetual futures pairs
-// For development/testing, it returns only the top 50 most liquid pairs
+// Returns top 150 symbols sorted by 24-hour quote volume (USDT volume)
 func (c *Client) GetActiveSymbols(ctx context.Context) ([]string, error) {
-	url := c.baseURL + ExchangeInfoEndpoint
+	// Step 1: Get exchange info to filter for active perpetual USDT futures
+	exchangeInfoURL := c.baseURL + ExchangeInfoEndpoint
 	
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", exchangeInfoURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create exchange info request: %w", err)
 	}
 	
-	c.logger.Debug().Str("url", url).Msg("fetching exchange info")
+	c.logger.Debug().Str("url", exchangeInfoURL).Msg("fetching exchange info")
 	
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, fmt.Errorf("exchange info request: %w", err)
 	}
 	defer resp.Body.Close()
 	
@@ -67,52 +73,108 @@ func (c *Client) GetActiveSymbols(ctx context.Context) ([]string, error) {
 	
 	var exchangeInfo ExchangeInfo
 	if err := json.NewDecoder(resp.Body).Decode(&exchangeInfo); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return nil, fmt.Errorf("decode exchange info: %w", err)
 	}
 	
 	// Filter for active USDT perpetual futures
-	var activeSymbols []string
+	activeSymbolSet := make(map[string]bool)
 	for _, symbol := range exchangeInfo.Symbols {
 		if symbol.IsActive() {
-			activeSymbols = append(activeSymbols, symbol.Symbol)
+			activeSymbolSet[symbol.Symbol] = true
 		}
 	}
+	
 	c.logger.Info().
 		Int("total", len(exchangeInfo.Symbols)).
-		Int("active", len(activeSymbols)).
+		Int("active_usdt_perpetuals", len(activeSymbolSet)).
 		Msg("fetched exchange info")
 	
-	// For development/testing: limit to top 50 most liquid pairs
-	// These are the most actively traded perpetual futures on Binance
-	top50 := []string{
-		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-		"ADAUSDT", "DOGEUSDT", "MATICUSDT", "DOTUSDT", "SHIBUSDT",
-		"AVAXUSDT", "LINKUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT",
-		"NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "FILUSDT",
-		"LDOUSDT", "INJUSDT", "STXUSDT", "SUIUSDT", "RNDRUSDT",
-		"ICPUSDT", "WLDUSDT", "TAOUSDT", "FETUSDT", "IMXUSDT",
-		"HBARUSDT", "GMXUSDT", "GRTUSDT", "MKRUSDT", "SANDUSDT",
-		"FTMUSDT", "AAVEUSDT", "RUNEUSDT", "TIAUSDT", "ALGOUSDT",
-		"VETUSDT", "RENDERUSDT", "ENAUSDT", "ARUSDT", "AXSUSDT",
-		"PEPEUSDT", "SEIUSDT", "PENDLEUSDT", "MANAUSDT", "FLOKIUSDT",
+	// Step 2: Get 24h ticker data for all symbols
+	ticker24hURL := c.baseURL + Ticker24hEndpoint
+	
+	req, err = http.NewRequestWithContext(ctx, "GET", ticker24hURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create ticker request: %w", err)
 	}
 	
-	// Filter activeSymbols to only include top50
-	filteredSymbols := make([]string, 0, len(top50))
-	symbolSet := make(map[string]bool)
-	for _, s := range activeSymbols {
-		symbolSet[s] = true
+	c.logger.Debug().Str("url", ticker24hURL).Msg("fetching 24h ticker data")
+	
+	resp, err = c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ticker request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected ticker status %d: %s", resp.StatusCode, string(body))
 	}
 	
-	for _, symbol := range top50 {
-		if symbolSet[symbol] {
-			filteredSymbols = append(filteredSymbols, symbol)
+	var tickers []Ticker24h
+	if err := json.NewDecoder(resp.Body).Decode(&tickers); err != nil {
+		return nil, fmt.Errorf("decode ticker data: %w", err)
+	}
+	
+	c.logger.Info().Int("tickers", len(tickers)).Msg("fetched 24h ticker data")
+	
+	// Step 3: Filter tickers to only active USDT perpetuals and parse quote volume
+	type symbolVolume struct {
+		symbol string
+		volume float64
+	}
+	
+	var symbolVolumes []symbolVolume
+	for _, ticker := range tickers {
+		// Only include symbols that are active USDT perpetuals
+		if !activeSymbolSet[ticker.Symbol] {
+			continue
 		}
+		
+		// Parse quote volume (volume in USDT)
+		quoteVol, err := strconv.ParseFloat(ticker.QuoteVolume, 64)
+		if err != nil {
+			c.logger.Warn().
+				Str("symbol", ticker.Symbol).
+				Str("quote_volume", ticker.QuoteVolume).
+				Err(err).
+				Msg("failed to parse quote volume, skipping")
+			continue
+		}
+		
+		symbolVolumes = append(symbolVolumes, symbolVolume{
+			symbol: ticker.Symbol,
+			volume: quoteVol,
+		})
+	}
+	
+	// Step 4: Sort by volume (descending) and take top 150
+	sort.Slice(symbolVolumes, func(i, j int) bool {
+		return symbolVolumes[i].volume > symbolVolumes[j].volume
+	})
+	
+	// Limit to top 150
+	limit := 150
+	if len(symbolVolumes) < limit {
+		limit = len(symbolVolumes)
+	}
+	
+	topSymbols := make([]string, limit)
+	for i := 0; i < limit; i++ {
+		topSymbols[i] = symbolVolumes[i].symbol
 	}
 	
 	c.logger.Info().
-		Int("filtered", len(filteredSymbols)).
-		Msg("limited to top 50 most liquid pairs for development")
+		Int("selected", len(topSymbols)).
+		Strs("top_10", topSymbols[:min(10, len(topSymbols))]).
+		Msg("selected top symbols by 24h volume")
 	
-	return filteredSymbols, nil
+	return topSymbols, nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

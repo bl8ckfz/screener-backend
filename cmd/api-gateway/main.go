@@ -126,13 +126,13 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 	})
 
 	return &server{
-		logger:      logger,
-		metrics:     metrics,
-		health:      health,
-		db:          db,
-		metadataDB:  metadataDB,
-		nc:          nc,
-		upgrader:    websocket.Upgrader{
+		logger:     logger,
+		metrics:    metrics,
+		health:     health,
+		db:         db,
+		metadataDB: metadataDB,
+		nc:         nc,
+		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		authSecret:  authSecret,
@@ -326,7 +326,7 @@ func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Extract symbol from path: /api/metrics/{symbol}
 	path := strings.TrimPrefix(r.URL.Path, "/api/metrics/")
 	symbol := strings.ToUpper(strings.TrimSpace(path))
-	
+
 	// If no symbol, return all symbols' metrics
 	if symbol == "" {
 		s.handleAllMetrics(w, r)
@@ -464,8 +464,8 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type SymbolMetrics struct {
-		Symbol     string                    `json:"symbol"`
-		Timeframes map[string]MetricsData    `json:"timeframes"`
+		Symbol     string                 `json:"symbol"`
+		Timeframes map[string]MetricsData `json:"timeframes"`
 	}
 
 	symbolsMap := make(map[string]*SymbolMetrics)
@@ -549,8 +549,8 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// No settings found, return defaults
 		response := map[string]interface{}{
-			"selected_alerts":       []string{},
-			"webhook_url":           nil,
+			"selected_alerts":      []string{},
+			"webhook_url":          nil,
 			"notification_enabled": true,
 		}
 		s.writeJSON(w, http.StatusOK, response)
@@ -558,8 +558,8 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]interface{}{
-		"selected_alerts":       selectedAlerts,
-		"webhook_url":           webhookURL,
+		"selected_alerts":      selectedAlerts,
+		"webhook_url":          webhookURL,
 		"notification_enabled": notificationEnabled,
 	}
 	s.writeJSON(w, http.StatusOK, response)
@@ -573,9 +573,9 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		SelectedAlerts       []string `json:"selected_alerts"`
-		WebhookURL           *string  `json:"webhook_url"`
-		NotificationEnabled  bool     `json:"notification_enabled"`
+		SelectedAlerts      []string `json:"selected_alerts"`
+		WebhookURL          *string  `json:"webhook_url"`
+		NotificationEnabled bool     `json:"notification_enabled"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -602,9 +602,9 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]interface{}{
-		"success":               true,
-		"selected_alerts":       req.SelectedAlerts,
-		"webhook_url":           req.WebhookURL,
+		"success":              true,
+		"selected_alerts":      req.SelectedAlerts,
+		"webhook_url":          req.WebhookURL,
 		"notification_enabled": req.NotificationEnabled,
 	}
 	s.writeJSON(w, http.StatusOK, response)

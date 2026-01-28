@@ -84,3 +84,21 @@ type Candle struct {
 	QuoteVolume    float64   `json:"quote_volume"`
 	NumberOfTrades int64     `json:"number_of_trades"`
 }
+
+// Ticker24h represents 24-hour ticker statistics
+type Ticker24h struct {
+	Symbol             string `json:"symbol"`
+	PriceChange        string `json:"priceChange"`
+	PriceChangePercent string `json:"priceChangePercent"`
+	WeightedAvgPrice   string `json:"weightedAvgPrice"`
+	LastPrice          string `json:"lastPrice"`
+	LastQty            string `json:"lastQty"`
+	OpenPrice          string `json:"openPrice"`
+	HighPrice          string `json:"highPrice"`
+	LowPrice           string `json:"lowPrice"`
+	Volume             string `json:"volume"`
+	QuoteVolume        string `json:"quoteVolume"`
+	OpenTime           int64  `json:"openTime"`
+	CloseTime          int64  `json:"closeTime"`
+	Count              int64  `json:"count"`
+}
