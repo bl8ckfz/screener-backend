@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS metrics_calculated (
   bb_middle DOUBLE PRECISION,
   bb_lower DOUBLE PRECISION,
   
+  -- Price and volume changes
+  price_change DOUBLE PRECISION,
+  volume_ratio DOUBLE PRECISION,
+  
   -- Fibonacci levels
   fib_r3 DOUBLE PRECISION,
   fib_r2 DOUBLE PRECISION,

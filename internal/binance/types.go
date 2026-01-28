@@ -4,9 +4,9 @@ import "time"
 
 // ExchangeInfo represents the response from /fapi/v1/exchangeInfo
 type ExchangeInfo struct {
-	Timezone   string         `json:"timezone"`
-	ServerTime int64          `json:"serverTime"`
-	Symbols    []SymbolInfo   `json:"symbols"`
+	Timezone   string       `json:"timezone"`
+	ServerTime int64        `json:"serverTime"`
+	Symbols    []SymbolInfo `json:"symbols"`
 }
 
 // SymbolInfo contains metadata for a trading pair
@@ -38,22 +38,22 @@ type KlineEvent struct {
 
 // KlineData contains the actual candlestick data
 type KlineData struct {
-	StartTime            int64  `json:"t"` // Kline start time (ms)
-	CloseTime            int64  `json:"T"` // Kline close time (ms)
-	Symbol               string `json:"s"` // Symbol
-	Interval             string `json:"i"` // Interval (1m, 5m, etc.)
-	FirstTradeID         int64  `json:"f"` // First trade ID
-	LastTradeID          int64  `json:"L"` // Last trade ID
-	OpenPrice            string `json:"o"` // Open price
-	ClosePrice           string `json:"c"` // Close price
-	HighPrice            string `json:"h"` // High price
-	LowPrice             string `json:"l"` // Low price
-	BaseAssetVolume      string `json:"v"` // Base asset volume
-	NumberOfTrades       int64  `json:"n"` // Number of trades
-	IsClosed             bool   `json:"x"` // Is this kline closed?
-	QuoteAssetVolume     string `json:"q"` // Quote asset volume
-	TakerBuyBaseVolume   string `json:"V"` // Taker buy base asset volume
-	TakerBuyQuoteVolume  string `json:"Q"` // Taker buy quote asset volume
+	StartTime           int64  `json:"t"` // Kline start time (ms)
+	CloseTime           int64  `json:"T"` // Kline close time (ms)
+	Symbol              string `json:"s"` // Symbol
+	Interval            string `json:"i"` // Interval (1m, 5m, etc.)
+	FirstTradeID        int64  `json:"f"` // First trade ID
+	LastTradeID         int64  `json:"L"` // Last trade ID
+	OpenPrice           string `json:"o"` // Open price
+	ClosePrice          string `json:"c"` // Close price
+	HighPrice           string `json:"h"` // High price
+	LowPrice            string `json:"l"` // Low price
+	BaseAssetVolume     string `json:"v"` // Base asset volume
+	NumberOfTrades      int64  `json:"n"` // Number of trades
+	IsClosed            bool   `json:"x"` // Is this kline closed?
+	QuoteAssetVolume    string `json:"q"` // Quote asset volume
+	TakerBuyBaseVolume  string `json:"V"` // Taker buy base asset volume
+	TakerBuyQuoteVolume string `json:"Q"` // Taker buy quote asset volume
 }
 
 // ValidateFields checks if the kline data has all required fields
@@ -62,12 +62,12 @@ func (k *KlineData) ValidateFields() bool {
 	if k.OpenPrice == "" || k.ClosePrice == "" || k.HighPrice == "" || k.LowPrice == "" {
 		return false
 	}
-	
+
 	// Check for non-empty volume
 	if k.BaseAssetVolume == "" || k.QuoteAssetVolume == "" {
 		return false
 	}
-	
+
 	return true
 }
 

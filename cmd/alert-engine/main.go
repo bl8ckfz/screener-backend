@@ -46,7 +46,7 @@ func main() {
 			logLevel = observability.LevelError
 		}
 	}
-	
+
 	logger := observability.NewLogger("alert-engine", logLevel)
 	metrics := observability.GetCollector()
 	health := observability.NewHealthChecker()
@@ -69,15 +69,14 @@ func main() {
 
 	// Get environment variables
 	natsURL := getEnv("NATS_URL", "nats://localhost:4222")
-	pgURL := getEnv("POSTGRES_URL", "postgres://crypto_user:crypto_pass@localhost:5433/crypto_metadata")
+	dbURL := getEnv("TIMESCALEDB_URL", "postgres://crypto_user:crypto_pass@localhost:5432/crypto")
 	redisURL := getEnv("REDIS_URL", "localhost:6379")
 	redisPassword := getEnv("REDIS_PASSWORD", "")
-	tsdbURL := getEnv("TIMESCALE_URL", "postgres://crypto_user:crypto_pass@localhost:5432/crypto_timeseries")
 	webhookURLs := getEnvSlice("WEBHOOK_URLS", "")
 
-	// Connect to PostgreSQL
-	logger.Info("Connecting to PostgreSQL")
-	poolConfig, err := pgxpool.ParseConfig(pgURL)
+	// Connect to TimescaleDB
+	logger.Info("Connecting to TimescaleDB")
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
 		logger.Fatal("Failed to parse PostgreSQL URL", err)
 	}
@@ -110,7 +109,7 @@ func main() {
 			Addr:     redisURL,
 			Password: redisPassword,
 		})
-		
+
 		// Test Redis connection
 		if err := rdb.Ping(ctx).Err(); err != nil {
 			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, using in-memory deduplication")
@@ -127,33 +126,6 @@ func main() {
 	} else {
 		logger.Info("Redis disabled, using in-memory deduplication")
 	}
-
-	// Connect to TimescaleDB
-	logger.Info("Connecting to TimescaleDB")
-	tsdbConfig, err := pgxpool.ParseConfig(tsdbURL)
-	if err != nil {
-		logger.Fatal("Failed to parse TimescaleDB URL", err)
-	}
-
-	tsdbConfig.MaxConns = 10
-	tsdbConfig.MaxConnLifetime = 1 * time.Hour
-	tsdbConfig.MaxConnIdleTime = 30 * time.Minute
-
-	tsdb, err := pgxpool.NewWithConfig(ctx, tsdbConfig)
-	if err != nil {
-		logger.Fatal("Failed to connect to TimescaleDB", err)
-	}
-	defer tsdb.Close()
-
-	// Verify connection
-	if err := tsdb.Ping(ctx); err != nil {
-		logger.Fatal("Failed to ping TimescaleDB", err)
-	}
-
-	// Add TimescaleDB health check
-	health.AddCheck("timescaledb", func(ctx context.Context) error {
-		return tsdb.Ping(ctx)
-	})
 
 	// Connect to NATS
 	logger.Infof("Connecting to NATS: %s", natsURL)
@@ -201,7 +173,7 @@ func main() {
 	logger.WithField("webhooks", len(webhookURLs)).Info("Initialized notifier")
 
 	// Initialize persister
-	persister := alerts.NewAlertPersister(tsdb, logger.Zerolog())
+	persister := alerts.NewAlertPersister(db, logger.Zerolog())
 	defer persister.Close()
 	logger.Info("Initialized alert persister")
 
@@ -241,15 +213,15 @@ func main() {
 
 		// DEBUG: Log metrics to identify data issues
 		logger.WithFields(map[string]interface{}{
-			"symbol":       alertMetrics.Symbol,
-			"price":        alertMetrics.LastPrice,
-			"change_5m":    alertMetrics.PriceChange5m,
-			"change_15m":   alertMetrics.PriceChange15m,
-			"change_1h":    alertMetrics.PriceChange1h,
-			"change_8h":    alertMetrics.PriceChange8h,
-			"change_1d":    alertMetrics.PriceChange1d,
-			"volume_5m":    alertMetrics.Candle5m.Volume,
-			"volume_1h":    alertMetrics.Candle1h.Volume,
+			"symbol":     alertMetrics.Symbol,
+			"price":      alertMetrics.LastPrice,
+			"change_5m":  alertMetrics.PriceChange5m,
+			"change_15m": alertMetrics.PriceChange15m,
+			"change_1h":  alertMetrics.PriceChange1h,
+			"change_8h":  alertMetrics.PriceChange8h,
+			"change_1d":  alertMetrics.PriceChange1d,
+			"volume_5m":  alertMetrics.Candle5m.Volume,
+			"volume_1h":  alertMetrics.Candle1h.Volume,
 		}).Debug("Received metrics for evaluation")
 
 		metrics.Counter(observability.MetricNATSMessagesReceived).Inc()

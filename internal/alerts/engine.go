@@ -33,7 +33,7 @@ func NewEngine(db *pgxpool.Pool, redis *redis.Client, logger zerolog.Logger) *En
 // LoadRules loads alert rules from PostgreSQL
 func (e *Engine) LoadRules(ctx context.Context) error {
 	query := `SELECT rule_type, config, description FROM alert_rules`
-	
+
 	rows, err := e.db.Query(ctx, query)
 	if err != nil {
 		return fmt.Errorf("query rules: %w", err)
@@ -44,7 +44,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 	for rows.Next() {
 		var rule AlertRule
 		var configJSON []byte
-		
+
 		if err := rows.Scan(&rule.RuleType, &configJSON, &rule.Description); err != nil {
 			return fmt.Errorf("scan rule: %w", err)
 		}
@@ -153,7 +153,7 @@ func (e *Engine) evaluateRule(ruleType string, criteria *AlertCriteria, metrics 
 }
 
 // evaluateBigBull60: Sustained momentum over multiple timeframes
-// Frontend logic: change_1h > 1.6 && change_1d < 15 && change_8h > change_1h && 
+// Frontend logic: change_1h > 1.6 && change_1d < 15 && change_8h > change_1h &&
 // change_1d > change_8h && volume_1h > 500_000 && volume_8h > 5_000_000 &&
 // 6 * volume_1h > volume_8h && 16 * volume_1h > volume_1d
 func (e *Engine) evaluateBigBull60(c *AlertCriteria, m *Metrics) bool {
@@ -330,23 +330,18 @@ func (e *Engine) extractCriteria(config map[string]interface{}) (*AlertCriteria,
 }
 
 // isDuplicate checks if alert was recently triggered
+// Always returns false to match TypeScript behavior (no deduplication)
 func (e *Engine) isDuplicate(ctx context.Context, symbol, ruleType string, ts time.Time) bool {
-	key := e.dedupKey(symbol, ruleType, ts)
-	exists, err := e.redis.Exists(ctx, key).Result()
-	if err != nil {
-		e.logger.Error().Err(err).Msg("redis exists check failed")
-		return false
-	}
-	return exists > 0
+	return false
 }
 
 // setDeduplicationKey sets the deduplication key for a specific candle/window.
-// TTL slightly exceeds the source timeframe to filter only exact-duplicate publishes.
+// No TTL - each new minute's metrics will have a different timestamp, so no deduplication needed
+// This matches TypeScript behavior where alerts fire every time conditions are met
 func (e *Engine) setDeduplicationKey(ctx context.Context, symbol, ruleType string, ts time.Time) {
-	key := e.dedupKey(symbol, ruleType, ts)
-	if err := e.redis.Set(ctx, key, "1", 2*time.Minute).Err(); err != nil {
-		e.logger.Error().Err(err).Msg("failed to set deduplication key")
-	}
+	// Deduplication disabled to match TypeScript version behavior
+	// TypeScript fires alerts every evaluation cycle when conditions are met
+	return
 }
 
 // dedupKey builds a per-candle deduplication key so each closed window can re-trigger naturally.
