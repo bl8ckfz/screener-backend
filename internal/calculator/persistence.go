@@ -262,8 +262,21 @@ func (mp *MetricsPersister) PersistCandle(ctx context.Context, candle ringbuffer
 	)
 
 	if err != nil {
+		mp.logger.Error().
+			Err(err).
+			Str("symbol", candle.Symbol).
+			Time("time", candle.OpenTime).
+			Msg("failed to persist candle to candles_1m")
 		return fmt.Errorf("insert candle: %w", err)
 	}
+
+	// Log successful persistence periodically (every 100th candle to avoid spam)
+	// This helps verify the feature is working
+	mp.logger.Debug().
+		Str("symbol", candle.Symbol).
+		Time("time", candle.OpenTime).
+		Float64("close", candle.Close).
+		Msg("persisted candle to candles_1m")
 
 	return nil
 }

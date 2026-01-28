@@ -139,8 +139,16 @@ func main() {
 		candleCtx, candleCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer candleCancel()
 		if err := persister.PersistCandle(candleCtx, candle); err != nil {
-			logger.WithField("symbol", candle.Symbol).Error("Failed to persist candle", err)
+			logger.WithFields(map[string]interface{}{
+				"symbol": candle.Symbol,
+			}).Error("Failed to persist candle to candles_1m", err)
 			// Don't return - continue processing even if DB write fails
+		} else {
+			// Log success occasionally to verify feature is working
+			logger.WithFields(map[string]interface{}{
+				"symbol": candle.Symbol,
+				"close":  candle.Close,
+			}).Debug("Persisted candle to candles_1m")
 		}
 
 		// Measure calculation time
