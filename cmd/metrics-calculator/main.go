@@ -107,8 +107,14 @@ func main() {
 	defer persister.Close()
 
 	// Subscribe to all candle messages
-	// Use AckExplicit to manually acknowledge messages and allow consumer reuse
-	logger.Info("Subscribing to candles.1m.>")
+	// Use unique consumer name to allow multiple deployments/replicas
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = fmt.Sprintf("metrics-calculator-%d", time.Now().Unix())
+	}
+	consumerName := fmt.Sprintf("metrics-calculator-%s", hostname)
+	
+	logger.WithField("consumer", consumerName).Info("Subscribing to candles.1m.>")
 	sub, err := js.Subscribe("candles.1m.>", func(msg *nats.Msg) {
 		defer msg.Ack() // Acknowledge message after processing
 		// Parse candle from message
@@ -181,7 +187,7 @@ func main() {
 			"volume_5m":    metricsData.Candle5m.Volume,
 			"quote_vol_1h": metricsData.Candle1h.Volume,
 		}).Debug("Published metrics")
-	}, nats.Durable("metrics-calculator"), nats.DeliverAll(), nats.AckExplicit())
+	}, nats.Durable(consumerName), nats.DeliverAll(), nats.AckExplicit())
 
 	if err != nil {
 		logger.Fatal("Failed to subscribe to candles", err)
