@@ -92,7 +92,7 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 	dbURL := getenv("TIMESCALEDB_URL", "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable")
 	authSecret := os.Getenv("SUPABASE_JWT_SECRET")
 	redisURL := getenv("REDIS_URL", "")
-	redisPassword := getenv("REDIS_PASSWORD", "")
+
 
 	nc, err := messaging.NewNATSConn(messaging.Config{URL: natsURL, MaxReconnects: -1, ReconnectWait: 2 * time.Second, EnableJetStream: true})
 	if err != nil {
@@ -122,18 +122,21 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 	var rdb *redis.Client
 	if redisURL != "" && redisURL != "disabled" {
 		logger.WithField("url", redisURL).Info("Connecting to Redis")
-		rdb = redis.NewClient(&redis.Options{
-			Addr:     redisURL,
-			Password: redisPassword,
-		})
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
-			rdb.Close()
-			rdb = nil
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			logger.WithField("error", err.Error()).Warn("Failed to parse REDIS_URL, ticker cache disabled")
 		} else {
-			health.AddCheck("redis", func(ctx context.Context) error {
-				return rdb.Ping(ctx).Err()
-			})
+			rdb = redis.NewClient(opt)
+			if err := rdb.Ping(ctx).Err(); err != nil {
+				logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
+				rdb.Close()
+				rdb = nil
+			} else {
+				logger.Info("Redis connected for ticker cache")
+				health.AddCheck("redis", func(ctx context.Context) error {
+					return rdb.Ping(ctx).Err()
+				})
+			}
 		}
 	}
 

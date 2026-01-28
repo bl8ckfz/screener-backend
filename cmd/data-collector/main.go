@@ -45,26 +45,22 @@ func main() {
 
 	// Optional Redis for ticker cache
 	redisURL := os.Getenv("REDIS_URL")
-	redisPassword := os.Getenv("REDIS_PASSWORD")
 	var rdb *redis.Client
 	if redisURL != "" && redisURL != "disabled" {
 		logger.WithField("url", redisURL).Info("Connecting to Redis")
-		rdb = redis.NewClient(&redis.Options{
-			Addr:     redisURL,
-			Password: redisPassword,
-		})
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
-			rdb.Close()
-			rdb = nil
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			logger.WithField("error", err.Error()).Warn("Failed to parse REDIS_URL, ticker cache disabled")
 		} else {
+			rdb = redis.NewClient(opt)
+			if err := rdb.Ping(ctx).Err(); err != nil {
+				logger.WithField("error", err.Error()).Warn("Failed to connect to Redis, ticker cache disabled")
+				rdb.Close()
+				rdb = nil
+			} else {
+			logger.Info("Redis connected for ticker cache")
 			defer rdb.Close()
 		}
-	}
-
-	// Connect to NATS
-	logger.Infof("Connecting to NATS: %s", natsURL)
-	nc, err := messaging.NewNATSConn(messaging.Config{
 		URL:             natsURL,
 		MaxReconnects:   -1,
 		ReconnectWait:   2 * time.Second,
