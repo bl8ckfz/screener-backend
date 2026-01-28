@@ -72,18 +72,39 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Alert rules table (for metadata)
+-- Alert rules table (global system rules)
 CREATE TABLE IF NOT EXISTS alert_rules (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES user_settings(user_id),
-    symbol TEXT NOT NULL,
-    rule_type TEXT NOT NULL,
-    timeframe TEXT NOT NULL,
-    enabled BOOLEAN DEFAULT true,
-    conditions JSONB,
+    rule_type TEXT PRIMARY KEY,
+    config JSONB NOT NULL DEFAULT '{}',
+    description TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_rules_user_id ON alert_rules (user_id);
-CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol ON alert_rules (symbol);
+-- Insert default alert rules
+INSERT INTO alert_rules (rule_type, config, description) VALUES
+  ('futures_big_bull_60', '{}', '60 Big Bull - Sustained momentum over multiple timeframes'),
+  ('futures_big_bear_60', '{}', '60 Big Bear - Sustained downward momentum'),
+  ('futures_pioneer_bull', '{}', 'Pioneer Bull - Early bullish trend detection'),
+  ('futures_pioneer_bear', '{}', 'Pioneer Bear - Early bearish trend detection'),
+  ('futures_5_big_bull', '{}', '5 Big Bull - 5-minute bullish spike'),
+  ('futures_5_big_bear', '{}', '5 Big Bear - 5-minute bearish spike'),
+  ('futures_15_big_bull', '{}', '15 Big Bull - 15-minute bullish spike'),
+  ('futures_15_big_bear', '{}', '15 Big Bear - 15-minute bearish spike'),
+  ('futures_bottom_hunter', '{}', 'Bottom Hunter - Potential bottom reversal'),
+  ('futures_top_hunter', '{}', 'Top Hunter - Potential top reversal')
+ON CONFLICT (rule_type) DO NOTHING;
+
+-- User alert subscriptions (which rules users want to receive)
+CREATE TABLE IF NOT EXISTS user_alert_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES user_settings(user_id),
+    rule_type TEXT REFERENCES alert_rules(rule_type),
+    symbol TEXT,  -- NULL means all symbols
+    enabled BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_alert_subscriptions_user_id ON user_alert_subscriptions (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_alert_subscriptions_rule_type ON user_alert_subscriptions (rule_type);
