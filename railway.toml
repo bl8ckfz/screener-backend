@@ -1,0 +1,44 @@
+# Railway configuration for multi-service monorepo
+# Each service watches relevant paths for auto-deployment
+
+[[services]]
+name = "data-collector"
+build.watchPaths = [
+  "cmd/data-collector/**",
+  "internal/binance/**",
+  "pkg/**",
+  "go.mod",
+  "go.sum"
+]
+
+[[services]]
+name = "metrics-calculator"
+build.watchPaths = [
+  "cmd/metrics-calculator/**",
+  "internal/calculator/**",
+  "internal/ringbuffer/**",
+  "internal/indicators/**",
+  "pkg/**",
+  "go.mod",
+  "go.sum"
+]
+
+[[services]]
+name = "alert-engine"
+build.watchPaths = [
+  "cmd/alert-engine/**",
+  "internal/alerts/**",
+  "pkg/**",
+  "go.mod",
+  "go.sum"
+]
+
+[[services]]
+name = "api-gateway"
+build.watchPaths = [
+  "cmd/api-gateway/**",
+  "internal/api/**",
+  "pkg/**",
+  "go.mod",
+  "go.sum"
+]

@@ -92,15 +92,18 @@ func (mp *MetricsPersister) writeBatch(batch []*SymbolMetrics) {
 		INSERT INTO metrics_calculated (
 			time, symbol, timeframe,
 			open, high, low, close, volume,
+			price_change, volume_ratio,
 			vcp, rsi_14, macd, macd_signal,
 			fib_r3, fib_r2, fib_r1, fib_pivot, fib_s1, fib_s2, fib_s3
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		ON CONFLICT (time, symbol, timeframe) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
 			low = EXCLUDED.low,
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
+			price_change = EXCLUDED.price_change,
+			volume_ratio = EXCLUDED.volume_ratio,
 			vcp = EXCLUDED.vcp,
 			rsi_14 = EXCLUDED.rsi_14,
 			macd = EXCLUDED.macd,
@@ -143,6 +146,28 @@ func (mp *MetricsPersister) writeBatch(batch []*SymbolMetrics) {
 				continue // Skip empty candles
 			}
 
+			// Get price_change and volume_ratio for this timeframe
+			var priceChange, volumeRatio float64
+			switch tf.name {
+			case "5m":
+				priceChange = metrics.PriceChange5m
+				volumeRatio = metrics.VolumeRatio5m
+			case "15m":
+				priceChange = metrics.PriceChange15m
+				volumeRatio = metrics.VolumeRatio15m
+			case "1h":
+				priceChange = metrics.PriceChange1h
+				volumeRatio = metrics.VolumeRatio1h
+			case "4h":
+				priceChange = metrics.PriceChange4h
+				volumeRatio = metrics.VolumeRatio4h
+			case "8h":
+				priceChange = metrics.PriceChange8h
+				volumeRatio = metrics.VolumeRatio8h
+			case "1d":
+				priceChange = metrics.PriceChange1d
+			}
+
 			_, err := tx.Exec(ctx, query,
 				metrics.Timestamp,
 				metrics.Symbol,
@@ -152,15 +177,8 @@ func (mp *MetricsPersister) writeBatch(batch []*SymbolMetrics) {
 				tf.candle.Low,
 				tf.candle.Close,
 				tf.candle.Volume,
-				metrics.VCP,
-				metrics.RSI,
-				metrics.MACD.MACD,
-				metrics.MACD.Signal,
-				metrics.Fibonacci.Resistance1,
-				metrics.Fibonacci.Resistance618,
-				metrics.Fibonacci.Resistance382,
-				metrics.Fibonacci.Pivot,
-				metrics.Fibonacci.Support382,
+			priceChange,
+			volumeRatio,
 				metrics.Fibonacci.Support618,
 				metrics.Fibonacci.Support1,
 			)
@@ -207,15 +225,18 @@ func PersistMetrics(ctx context.Context, pool *pgxpool.Pool, metrics *SymbolMetr
 		INSERT INTO metrics_calculated (
 			time, symbol, timeframe,
 			open, high, low, close, volume,
+			price_change, volume_ratio,
 			vcp, rsi_14, macd, macd_signal,
 			fib_r3, fib_r2, fib_r1, fib_pivot, fib_s1, fib_s2, fib_s3
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		ON CONFLICT (time, symbol, timeframe) DO UPDATE SET
 			open = EXCLUDED.open,
 			high = EXCLUDED.high,
 			low = EXCLUDED.low,
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
+			price_change = EXCLUDED.price_change,
+			volume_ratio = EXCLUDED.volume_ratio,
 			vcp = EXCLUDED.vcp,
 			rsi_14 = EXCLUDED.rsi_14,
 			macd = EXCLUDED.macd,
@@ -239,6 +260,28 @@ func PersistMetrics(ctx context.Context, pool *pgxpool.Pool, metrics *SymbolMetr
 			continue
 		}
 
+		// Get price_change and volume_ratio for this timeframe
+		var priceChange, volumeRatio float64
+		switch tf.name {
+		case "5m":
+			priceChange = metrics.PriceChange5m
+			volumeRatio = metrics.VolumeRatio5m
+		case "15m":
+			priceChange = metrics.PriceChange15m
+			volumeRatio = metrics.VolumeRatio15m
+		case "1h":
+			priceChange = metrics.PriceChange1h
+			volumeRatio = metrics.VolumeRatio1h
+		case "4h":
+			priceChange = metrics.PriceChange4h
+			volumeRatio = metrics.VolumeRatio4h
+		case "8h":
+			priceChange = metrics.PriceChange8h
+			volumeRatio = metrics.VolumeRatio8h
+		case "1d":
+			priceChange = metrics.PriceChange1d
+		}
+
 		_, err := pool.Exec(ctx, query,
 			metrics.Timestamp,
 			metrics.Symbol,
@@ -248,6 +291,8 @@ func PersistMetrics(ctx context.Context, pool *pgxpool.Pool, metrics *SymbolMetr
 			tf.candle.Low,
 			tf.candle.Close,
 			tf.candle.Volume,
+			priceChange,
+			volumeRatio,
 			metrics.VCP,
 			metrics.RSI,
 			metrics.MACD.MACD,

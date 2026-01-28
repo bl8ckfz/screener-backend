@@ -427,6 +427,7 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 		WITH latest_metrics AS (
 			SELECT DISTINCT ON (symbol, timeframe)
 				symbol, timeframe, time, open, high, low, close, volume,
+				price_change, volume_ratio,
 				vcp, rsi_14, macd, macd_signal,
 				bb_upper, bb_middle, bb_lower,
 				fib_r3, fib_r2, fib_r1, fib_pivot, fib_s1, fib_s2, fib_s3
@@ -447,20 +448,22 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type MetricsData struct {
-		Time       time.Time              `json:"time"`
-		Open       float64                `json:"open"`
-		High       float64                `json:"high"`
-		Low        float64                `json:"low"`
-		Close      float64                `json:"close"`
-		Volume     float64                `json:"volume"`
-		VCP        *float64               `json:"vcp,omitempty"`
-		RSI14      *float64               `json:"rsi_14,omitempty"`
-		MACD       *float64               `json:"macd,omitempty"`
-		MACDSignal *float64               `json:"macd_signal,omitempty"`
-		BBUpper    *float64               `json:"bb_upper,omitempty"`
-		BBMiddle   *float64               `json:"bb_middle,omitempty"`
-		BBLower    *float64               `json:"bb_lower,omitempty"`
-		Fibonacci  map[string]interface{} `json:"fibonacci,omitempty"`
+		Time         time.Time              `json:"time"`
+		Open         float64                `json:"open"`
+		High         float64                `json:"high"`
+		Low          float64                `json:"low"`
+		Close        float64                `json:"close"`
+		Volume       float64                `json:"volume"`
+		PriceChange  *float64               `json:"price_change,omitempty"`
+		VolumeRatio  *float64               `json:"volume_ratio,omitempty"`
+		VCP          *float64               `json:"vcp,omitempty"`
+		RSI14        *float64               `json:"rsi_14,omitempty"`
+		MACD         *float64               `json:"macd,omitempty"`
+		MACDSignal   *float64               `json:"macd_signal,omitempty"`
+		BBUpper      *float64               `json:"bb_upper,omitempty"`
+		BBMiddle     *float64               `json:"bb_middle,omitempty"`
+		BBLower      *float64               `json:"bb_lower,omitempty"`
+		Fibonacci    map[string]interface{} `json:"fibonacci,omitempty"`
 	}
 
 	type SymbolMetrics struct {
@@ -477,6 +480,7 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 		var fibR3, fibR2, fibR1, fibPivot, fibS1, fibS2, fibS3 *float64
 
 		if err := rows.Scan(&symbol, &tf, &t, &m.Open, &m.High, &m.Low, &m.Close, &m.Volume,
+			&m.PriceChange, &m.VolumeRatio,
 			&m.VCP, &m.RSI14, &m.MACD, &m.MACDSignal,
 			&m.BBUpper, &m.BBMiddle, &m.BBLower,
 			&fibR3, &fibR2, &fibR1, &fibPivot, &fibS1, &fibS2, &fibS3); err != nil {
