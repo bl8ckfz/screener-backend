@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -85,8 +87,7 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 	metrics := observability.GetCollector()
 	health := observability.NewHealthChecker()
 	natsURL := getenv("NATS_URL", "nats://localhost:4222")
-	tsdbURL := getenv("TIMESCALE_URL", "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable")
-	metadataURL := getenv("POSTGRES_URL", "postgres://crypto_user:crypto_password@localhost:5433/crypto_metadata?sslmode=disable")
+	dbURL := getenv("TIMESCALEDB_URL", "postgres://crypto_user:crypto_password@localhost:5432/crypto?sslmode=disable")
 	authSecret := os.Getenv("SUPABASE_JWT_SECRET")
 
 	nc, err := messaging.NewNATSConn(messaging.Config{URL: natsURL, MaxReconnects: -1, ReconnectWait: 2 * time.Second, EnableJetStream: true})
@@ -102,7 +103,7 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 		return nil
 	})
 
-	db, err := database.NewPostgresPool(ctx, tsdbURL)
+	db, err := database.NewPostgresPool(ctx, dbURL)
 	if err != nil {
 		nc.Close()
 		return nil, err
@@ -113,24 +114,12 @@ func bootstrap(ctx context.Context, logger *observability.Logger) (*server, erro
 		return db.Ping(ctx)
 	})
 
-	metadataDB, err := database.NewPostgresPool(ctx, metadataURL)
-	if err != nil {
-		nc.Close()
-		db.Close()
-		return nil, err
-	}
-
-	// Add metadata DB health check
-	health.AddCheck("postgres", func(ctx context.Context) error {
-		return metadataDB.Ping(ctx)
-	})
-
 	return &server{
 		logger:     logger,
 		metrics:    metrics,
 		health:     health,
 		db:         db,
-		metadataDB: metadataDB,
+		metadataDB: db,
 		nc:         nc,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -164,6 +153,7 @@ func (s *server) routes() http.Handler {
 	// API endpoints
 	mux.HandleFunc("/api/alerts", s.cors(s.rateLimit(s.authOptional(s.handleAlerts))))
 	mux.HandleFunc("/api/metrics/", s.cors(s.rateLimit(s.authOptional(s.handleMetrics))))
+	mux.HandleFunc("/api/klines", s.cors(s.rateLimit(s.authOptional(s.handleKlines))))
 	mux.HandleFunc("/api/settings", s.cors(s.rateLimit(s.authRequired(s.handleSettings))))
 	mux.HandleFunc("/ws/alerts", s.cors(s.authOptional(s.handleAlertsWS)))
 	return mux
@@ -448,22 +438,22 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type MetricsData struct {
-		Time         time.Time              `json:"time"`
-		Open         float64                `json:"open"`
-		High         float64                `json:"high"`
-		Low          float64                `json:"low"`
-		Close        float64                `json:"close"`
-		Volume       float64                `json:"volume"`
-		PriceChange  *float64               `json:"price_change,omitempty"`
-		VolumeRatio  *float64               `json:"volume_ratio,omitempty"`
-		VCP          *float64               `json:"vcp,omitempty"`
-		RSI14        *float64               `json:"rsi_14,omitempty"`
-		MACD         *float64               `json:"macd,omitempty"`
-		MACDSignal   *float64               `json:"macd_signal,omitempty"`
-		BBUpper      *float64               `json:"bb_upper,omitempty"`
-		BBMiddle     *float64               `json:"bb_middle,omitempty"`
-		BBLower      *float64               `json:"bb_lower,omitempty"`
-		Fibonacci    map[string]interface{} `json:"fibonacci,omitempty"`
+		Time        time.Time              `json:"time"`
+		Open        float64                `json:"open"`
+		High        float64                `json:"high"`
+		Low         float64                `json:"low"`
+		Close       float64                `json:"close"`
+		Volume      float64                `json:"volume"`
+		PriceChange *float64               `json:"price_change,omitempty"`
+		VolumeRatio *float64               `json:"volume_ratio,omitempty"`
+		VCP         *float64               `json:"vcp,omitempty"`
+		RSI14       *float64               `json:"rsi_14,omitempty"`
+		MACD        *float64               `json:"macd,omitempty"`
+		MACDSignal  *float64               `json:"macd_signal,omitempty"`
+		BBUpper     *float64               `json:"bb_upper,omitempty"`
+		BBMiddle    *float64               `json:"bb_middle,omitempty"`
+		BBLower     *float64               `json:"bb_lower,omitempty"`
+		Fibonacci   map[string]interface{} `json:"fibonacci,omitempty"`
 	}
 
 	type SymbolMetrics struct {
@@ -517,6 +507,60 @@ func (s *server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *server) handleKlines(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	symbol := strings.ToUpper(strings.TrimSpace(q.Get("symbol")))
+	interval := strings.TrimSpace(q.Get("interval"))
+	limit := clamp(toInt(q.Get("limit"), 500), 1, 1500)
+
+	if symbol == "" {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "symbol is required")
+		return
+	}
+	if interval == "" || !isValidKlineInterval(interval) {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "invalid interval")
+		return
+	}
+
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("interval", interval)
+	params.Set("limit", strconv.Itoa(limit))
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	binanceURL := "https://fapi.binance.com/fapi/v1/klines?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, binanceURL, nil)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "request_failed", err.Error())
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.writeError(w, http.StatusBadGateway, "upstream_failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func isValidKlineInterval(interval string) bool {
+	switch interval {
+	case "1m", "3m", "5m", "15m", "30m",
+		"1h", "2h", "4h", "6h", "8h", "12h",
+		"1d", "3d", "1w", "1M":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *server) handleSettings(w http.ResponseWriter, r *http.Request) {
