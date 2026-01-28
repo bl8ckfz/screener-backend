@@ -146,13 +146,14 @@ func (mc *MetricsCalculator) CalculateMetrics(symbol string) (*SymbolMetrics, er
 		)
 	}
 
-	// Calculate price changes (% change from open to close of aggregated candle)
-	metrics.PriceChange5m = mc.calculatePriceChangeFromCandle(metrics.Candle5m)
-	metrics.PriceChange15m = mc.calculatePriceChangeFromCandle(metrics.Candle15m)
-	metrics.PriceChange1h = mc.calculatePriceChangeFromCandle(metrics.Candle1h)
-	metrics.PriceChange4h = mc.calculatePriceChangeFromCandle(metrics.Candle4h)
-	metrics.PriceChange8h = mc.calculatePriceChangeFromCandle(metrics.Candle8h)
-	metrics.PriceChange1d = mc.calculatePriceChangeFromCandle(metrics.Candle1d)
+	// Calculate price changes (% change from oldest to newest candle in each window)
+	// This matches the frontend TypeScript logic: (newest.close - oldest.close) / oldest.close * 100
+	metrics.PriceChange5m = mc.calculatePriceChange(buffer, 5)
+	metrics.PriceChange15m = mc.calculatePriceChange(buffer, 15)
+	metrics.PriceChange1h = mc.calculatePriceChange(buffer, 60)
+	metrics.PriceChange4h = mc.calculatePriceChange(buffer, 240)
+	metrics.PriceChange8h = mc.calculatePriceChange(buffer, 480)
+	metrics.PriceChange1d = mc.calculatePriceChange(buffer, 1440)
 
 	// Calculate volume ratios (current period vs previous period)
 	metrics.VolumeRatio5m = mc.calculateVolumeRatio(buffer, 5)
@@ -207,7 +208,32 @@ func (mc *MetricsCalculator) aggregateTimeframeCandle(buffer *ringbuffer.RingBuf
 	}
 }
 
+// calculatePriceChange calculates percentage price change from oldest to newest candle in window
+// This matches the frontend logic: (newest.close - oldest.close) / oldest.close * 100
+func (mc *MetricsCalculator) calculatePriceChange(buffer *ringbuffer.RingBuffer, minutes int) float64 {
+	if buffer.Size() < minutes {
+		// Not enough data for this window
+		return 0
+	}
+
+	candles := buffer.GetLast(minutes)
+	if len(candles) < 2 {
+		return 0
+	}
+
+	// Oldest candle is first in the slice, newest is last
+	oldest := candles[0]
+	newest := candles[len(candles)-1]
+
+	if oldest.Close == 0 {
+		return 0
+	}
+
+	return ((newest.Close - oldest.Close) / oldest.Close) * 100
+}
+
 // calculatePriceChangeFromCandle calculates percentage price change from open to close
+// Deprecated: Use calculatePriceChange instead for sliding window behavior
 func (mc *MetricsCalculator) calculatePriceChangeFromCandle(candle TimeframeCandle) float64 {
 	if candle.Open == 0 {
 		return 0
