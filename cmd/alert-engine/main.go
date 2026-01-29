@@ -401,25 +401,65 @@ func runPeriodicEvaluation(
 	}
 }
 
-// queryLatestMetrics retrieves the most recent 1m metrics for all symbols
+// queryLatestMetrics retrieves the latest metrics for all symbols from the database
+// This is used by periodic evaluation to get fresh data every 5 seconds
+// NOTE: Each timeframe is stored as a separate row in metrics_calculated
 func queryLatestMetrics(ctx context.Context, db *pgxpool.Pool) ([]*alerts.Metrics, error) {
+	// Query to get latest metrics for each symbol across all timeframes
+	// We pivot the timeframe rows into columns using MAX and CASE
 	query := `
-		SELECT DISTINCT ON (symbol)
+		WITH latest_metrics AS (
+			SELECT DISTINCT ON (symbol, timeframe)
+				symbol,
+				timeframe,
+				time,
+				open, high, low, close, volume,
+				price_change,
+				volume_ratio,
+				vcp,
+				rsi_14
+			FROM metrics_calculated
+			WHERE time > NOW() - INTERVAL '5 minutes'
+			ORDER BY symbol, timeframe, time DESC
+		)
+		SELECT
 			symbol,
-			time,
-			open, high, low, close, volume, quote_volume,
-			open_5m, high_5m, low_5m, close_5m, volume_5m, quote_volume_5m,
-			open_15m, high_15m, low_15m, close_15m, volume_15m, quote_volume_15m,
-			open_1h, high_1h, low_1h, close_1h, volume_1h, quote_volume_1h,
-			open_8h, high_8h, low_8h, close_8h, volume_8h, quote_volume_8h,
-			open_1d, high_1d, low_1d, close_1d, volume_1d, quote_volume_1d,
-			price_change_5m, price_change_15m, price_change_1h, price_change_8h, price_change_1d,
-			volume_ratio_5m, volume_ratio_15m, volume_ratio_1h, volume_ratio_8h,
-			vcp, rsi
-		FROM metrics_calculated
-		WHERE timeframe = '1m'
-		  AND time > NOW() - INTERVAL '2 minutes'
-		ORDER BY symbol, time DESC
+			MAX(CASE WHEN timeframe = '5m' THEN time END) as time_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN open END) as open_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN high END) as high_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN low END) as low_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN close END) as close_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN volume END) as volume_5m,
+			MAX(CASE WHEN timeframe = '5m' THEN price_change END) as price_change_5m,
+			MAX(CASE WHEN timeframe = '15m' THEN open END) as open_15m,
+			MAX(CASE WHEN timeframe = '15m' THEN high END) as high_15m,
+			MAX(CASE WHEN timeframe = '15m' THEN low END) as low_15m,
+			MAX(CASE WHEN timeframe = '15m' THEN close END) as close_15m,
+			MAX(CASE WHEN timeframe = '15m' THEN volume END) as volume_15m,
+			MAX(CASE WHEN timeframe = '15m' THEN price_change END) as price_change_15m,
+			MAX(CASE WHEN timeframe = '1h' THEN open END) as open_1h,
+			MAX(CASE WHEN timeframe = '1h' THEN high END) as high_1h,
+			MAX(CASE WHEN timeframe = '1h' THEN low END) as low_1h,
+			MAX(CASE WHEN timeframe = '1h' THEN close END) as close_1h,
+			MAX(CASE WHEN timeframe = '1h' THEN volume END) as volume_1h,
+			MAX(CASE WHEN timeframe = '1h' THEN price_change END) as price_change_1h,
+			MAX(CASE WHEN timeframe = '8h' THEN open END) as open_8h,
+			MAX(CASE WHEN timeframe = '8h' THEN high END) as high_8h,
+			MAX(CASE WHEN timeframe = '8h' THEN low END) as low_8h,
+			MAX(CASE WHEN timeframe = '8h' THEN close END) as close_8h,
+			MAX(CASE WHEN timeframe = '8h' THEN volume END) as volume_8h,
+			MAX(CASE WHEN timeframe = '8h' THEN price_change END) as price_change_8h,
+			MAX(CASE WHEN timeframe = '1d' THEN open END) as open_1d,
+			MAX(CASE WHEN timeframe = '1d' THEN high END) as high_1d,
+			MAX(CASE WHEN timeframe = '1d' THEN low END) as low_1d,
+			MAX(CASE WHEN timeframe = '1d' THEN close END) as close_1d,
+			MAX(CASE WHEN timeframe = '1d' THEN volume END) as volume_1d,
+			MAX(CASE WHEN timeframe = '1d' THEN price_change END) as price_change_1d,
+			MAX(CASE WHEN timeframe = '5m' THEN vcp END) as vcp,
+			MAX(CASE WHEN timeframe = '5m' THEN rsi_14 END) as rsi
+		FROM latest_metrics
+		GROUP BY symbol
+		HAVING MAX(CASE WHEN timeframe = '5m' THEN close END) IS NOT NULL
 	`
 
 	rows, err := db.Query(ctx, query)
@@ -431,28 +471,56 @@ func queryLatestMetrics(ctx context.Context, db *pgxpool.Pool) ([]*alerts.Metric
 	var metricsSlice []*alerts.Metrics
 	for rows.Next() {
 		var m alerts.Metrics
-		var c1m, c5m, c15m, c1h, c8h, c1d alerts.TimeframeCandle
-		var quoteVol1m, quoteVol5m, quoteVol15m, quoteVol1h, quoteVol8h, quoteVol1d float64
+		var c5m, c15m, c1h, c8h, c1d alerts.TimeframeCandle
+		var time5m time.Time
+		var priceChange5m, priceChange15m, priceChange1h, priceChange8h, priceChange1d *float64
+		var vcp, rsi *float64
 
 		err := rows.Scan(
 			&m.Symbol,
-			&m.Timestamp,
-			&c1m.Open, &c1m.High, &c1m.Low, &c1m.Close, &c1m.Volume, &quoteVol1m,
-			&c5m.Open, &c5m.High, &c5m.Low, &c5m.Close, &c5m.Volume, &quoteVol5m,
-			&c15m.Open, &c15m.High, &c15m.Low, &c15m.Close, &c15m.Volume, &quoteVol15m,
-			&c1h.Open, &c1h.High, &c1h.Low, &c1h.Close, &c1h.Volume, &quoteVol1h,
-			&c8h.Open, &c8h.High, &c8h.Low, &c8h.Close, &c8h.Volume, &quoteVol8h,
-			&c1d.Open, &c1d.High, &c1d.Low, &c1d.Close, &c1d.Volume, &quoteVol1d,
-			&m.PriceChange5m, &m.PriceChange15m, &m.PriceChange1h, &m.PriceChange8h, &m.PriceChange1d,
-			&m.VolumeRatio5m, &m.VolumeRatio15m, &m.VolumeRatio1h, &m.VolumeRatio8h,
-			&m.VCP, &m.RSI,
+			&time5m,
+			&c5m.Open, &c5m.High, &c5m.Low, &c5m.Close, &c5m.Volume,
+			&priceChange5m,
+			&c15m.Open, &c15m.High, &c15m.Low, &c15m.Close, &c15m.Volume,
+			&priceChange15m,
+			&c1h.Open, &c1h.High, &c1h.Low, &c1h.Close, &c1h.Volume,
+			&priceChange1h,
+			&c8h.Open, &c8h.High, &c8h.Low, &c8h.Close, &c8h.Volume,
+			&priceChange8h,
+			&c1d.Open, &c1d.High, &c1d.Low, &c1d.Close, &c1d.Volume,
+			&priceChange1d,
+			&vcp,
+			&rsi,
 		)
 		if err != nil {
 			continue
 		}
 
-		m.LastPrice = c1m.Close
-		m.Candle1m = c1m
+		// Convert nullable floats
+		if priceChange5m != nil {
+			m.PriceChange5m = *priceChange5m
+		}
+		if priceChange15m != nil {
+			m.PriceChange15m = *priceChange15m
+		}
+		if priceChange1h != nil {
+			m.PriceChange1h = *priceChange1h
+		}
+		if priceChange8h != nil {
+			m.PriceChange8h = *priceChange8h
+		}
+		if priceChange1d != nil {
+			m.PriceChange1d = *priceChange1d
+		}
+		if vcp != nil {
+			m.VCP = *vcp
+		}
+		if rsi != nil {
+			m.RSI = *rsi
+		}
+
+		m.Timestamp = time5m
+		m.LastPrice = c5m.Close
 		m.Candle5m = c5m
 		m.Candle15m = c15m
 		m.Candle1h = c1h
