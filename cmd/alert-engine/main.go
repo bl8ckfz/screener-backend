@@ -213,15 +213,17 @@ func main() {
 
 		// DEBUG: Log metrics to identify data issues
 		logger.WithFields(map[string]interface{}{
-			"symbol":     alertMetrics.Symbol,
-			"price":      alertMetrics.LastPrice,
-			"change_5m":  alertMetrics.PriceChange5m,
-			"change_15m": alertMetrics.PriceChange15m,
-			"change_1h":  alertMetrics.PriceChange1h,
-			"change_8h":  alertMetrics.PriceChange8h,
-			"change_1d":  alertMetrics.PriceChange1d,
-			"volume_5m":  alertMetrics.Candle5m.Volume,
-			"volume_1h":  alertMetrics.Candle1h.Volume,
+			"symbol":      alertMetrics.Symbol,
+			"price":       alertMetrics.LastPrice,
+			"change_5m":   alertMetrics.PriceChange5m,
+			"change_15m":  alertMetrics.PriceChange15m,
+			"change_1h":   alertMetrics.PriceChange1h,
+			"change_8h":   alertMetrics.PriceChange8h,
+			"change_1d":   alertMetrics.PriceChange1d,
+			"volume_5m":   alertMetrics.Candle5m.Volume,
+			"volume_15m":  alertMetrics.Candle15m.Volume,
+			"volume_1h":   alertMetrics.Candle1h.Volume,
+			"vcp":         alertMetrics.VCP,
 		}).Debug("Received metrics for evaluation")
 
 		metrics.Counter(observability.MetricNATSMessagesReceived).Inc()

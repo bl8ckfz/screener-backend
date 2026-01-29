@@ -185,10 +185,28 @@ func (e *Engine) evaluateBigBear60(c *AlertCriteria, m *Metrics) bool {
 // evaluatePioneerBull: Early bullish momentum detection
 // Frontend logic: change_5m > 1 && change_15m > 1 && 3 * change_5m > change_15m && 2 * volume_5m > volume_15m
 func (e *Engine) evaluatePioneerBull(c *AlertCriteria, m *Metrics) bool {
-	return m.PriceChange5m > 1 &&
+	result := m.PriceChange5m > 1 &&
 		m.PriceChange15m > 1 &&
 		3*m.PriceChange5m > m.PriceChange15m &&
 		2*m.Candle5m.Volume > m.Candle15m.Volume
+	
+	// DEBUG: Log why BULLAUSDT specifically is not triggering
+	if m.Symbol == "BULLAUSDT" && m.PriceChange5m > 0.5 {
+		e.logger.Debug().
+			Str("symbol", m.Symbol).
+			Float64("change_5m", m.PriceChange5m).
+			Float64("change_15m", m.PriceChange15m).
+			Float64("volume_5m", m.Candle5m.Volume).
+			Float64("volume_15m", m.Candle15m.Volume).
+			Bool("cond1_change_5m>1", m.PriceChange5m > 1).
+			Bool("cond2_change_15m>1", m.PriceChange15m > 1).
+			Bool("cond3_3x5m>15m", 3*m.PriceChange5m > m.PriceChange15m).
+			Bool("cond4_2xvol5m>vol15m", 2*m.Candle5m.Volume > m.Candle15m.Volume).
+			Bool("result", result).
+			Msg("Pioneer Bull evaluation for BULLAUSDT")
+	}
+	
+	return result
 }
 
 // evaluatePioneerBear: Early bearish momentum detection
