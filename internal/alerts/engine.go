@@ -190,8 +190,8 @@ func (e *Engine) evaluatePioneerBull(c *AlertCriteria, m *Metrics) bool {
 		3*m.PriceChange5m > m.PriceChange15m &&
 		2*m.Candle5m.Volume > m.Candle15m.Volume
 	
-	// DEBUG: Log why BULLAUSDT specifically is not triggering
-	if m.Symbol == "BULLAUSDT" && m.PriceChange5m > 0.5 {
+	// DEBUG: Log evaluation for all symbols that are close to triggering
+	if (m.PriceChange5m > 0.8 || m.PriceChange15m > 0.8) && result == false {
 		e.logger.Debug().
 			Str("symbol", m.Symbol).
 			Float64("change_5m", m.PriceChange5m).
@@ -202,8 +202,13 @@ func (e *Engine) evaluatePioneerBull(c *AlertCriteria, m *Metrics) bool {
 			Bool("cond2_change_15m>1", m.PriceChange15m > 1).
 			Bool("cond3_3x5m>15m", 3*m.PriceChange5m > m.PriceChange15m).
 			Bool("cond4_2xvol5m>vol15m", 2*m.Candle5m.Volume > m.Candle15m.Volume).
-			Bool("result", result).
-			Msg("Pioneer Bull evaluation for BULLAUSDT")
+			Msg("Pioneer Bull FAILED - close to triggering")
+	} else if result {
+		e.logger.Info().
+			Str("symbol", m.Symbol).
+			Float64("change_5m", m.PriceChange5m).
+			Float64("change_15m", m.PriceChange15m).
+			Msg("Pioneer Bull TRIGGERED")
 	}
 	
 	return result

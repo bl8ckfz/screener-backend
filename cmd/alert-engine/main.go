@@ -282,6 +282,10 @@ func main() {
 		}
 	}()
 
+	// Start periodic evaluation (every 5 seconds to catch intra-minute spikes)
+	logger.Info("Starting periodic evaluation (5s interval)")
+	go runPeriodicEvaluation(ctx, engine, db, persister, notifier, js, metrics, logger)
+
 	// Start metrics server
 	metricsPort := os.Getenv("METRICS_PORT")
 	if metricsPort == "" {
@@ -314,6 +318,151 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	logger.Info("Alert Engine service stopped")
+}
+
+// runPeriodicEvaluation queries the latest metrics from the database every 5 seconds
+// This catches intra-minute price spikes that the NATS stream evaluation might miss
+func runPeriodicEvaluation(
+	ctx context.Context,
+	engine *alerts.Engine,
+	db *pgxpool.Pool,
+	persister *alerts.AlertPersister,
+	notifier *alerts.Notifier,
+	js nats.JetStreamContext,
+	metrics *observability.MetricsCollector,
+	logger *observability.Logger,
+) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Query latest 1m metrics for all symbols
+			metricsSlice, err := queryLatestMetrics(ctx, db)
+			if err != nil {
+				logger.Error("Failed to query latest metrics", err)
+				continue
+			}
+
+			// Evaluate each symbol
+			evaluationCount := 0
+			alertCount := 0
+			for _, m := range metricsSlice {
+				triggeredAlerts, err := engine.Evaluate(ctx, m)
+				if err != nil {
+					continue
+				}
+
+				evaluationCount++
+
+				// Process triggered alerts
+				for _, alert := range triggeredAlerts {
+					alertCount++
+					metrics.Counter(observability.MetricAlertsTriggered).Inc()
+
+					// Persist to database
+					persister.SaveAlert(alert)
+
+					// Send webhook notifications
+					if err := notifier.SendAlert(alert); err != nil {
+						metrics.Counter(observability.MetricWebhooksFailed).Inc()
+					} else {
+						metrics.Counter(observability.MetricWebhooksSent).Inc()
+					}
+
+					// Publish to NATS for API Gateway
+					payload, err := json.Marshal(alert)
+					if err != nil {
+						continue
+					}
+
+					if _, err := js.Publish("alerts.triggered", payload); err != nil {
+						metrics.Counter(observability.MetricNATSPublishErrors).Inc()
+						continue
+					}
+
+					metrics.Counter(observability.MetricNATSMessagesPublished).Inc()
+				}
+			}
+
+			// Log periodic evaluation stats
+			if alertCount > 0 {
+				logger.WithFields(map[string]interface{}{
+					"symbols_evaluated": evaluationCount,
+					"alerts_triggered":  alertCount,
+				}).Info("Periodic evaluation completed")
+			}
+
+		case <-ctx.Done():
+			logger.Info("Stopping periodic evaluation")
+			return
+		}
+	}
+}
+
+// queryLatestMetrics retrieves the most recent 1m metrics for all symbols
+func queryLatestMetrics(ctx context.Context, db *pgxpool.Pool) ([]*alerts.Metrics, error) {
+	query := `
+		SELECT DISTINCT ON (symbol)
+			symbol,
+			time,
+			open, high, low, close, volume, quote_volume,
+			open_5m, high_5m, low_5m, close_5m, volume_5m, quote_volume_5m,
+			open_15m, high_15m, low_15m, close_15m, volume_15m, quote_volume_15m,
+			open_1h, high_1h, low_1h, close_1h, volume_1h, quote_volume_1h,
+			open_8h, high_8h, low_8h, close_8h, volume_8h, quote_volume_8h,
+			open_1d, high_1d, low_1d, close_1d, volume_1d, quote_volume_1d,
+			price_change_5m, price_change_15m, price_change_1h, price_change_8h, price_change_1d,
+			volume_ratio_5m, volume_ratio_15m, volume_ratio_1h, volume_ratio_8h,
+			vcp, rsi
+		FROM metrics_calculated
+		WHERE timeframe = '1m'
+		  AND time > NOW() - INTERVAL '2 minutes'
+		ORDER BY symbol, time DESC
+	`
+
+	rows, err := db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metricsSlice []*alerts.Metrics
+	for rows.Next() {
+		var m alerts.Metrics
+		var c1m, c5m, c15m, c1h, c8h, c1d alerts.TimeframeCandle
+		var quoteVol1m, quoteVol5m, quoteVol15m, quoteVol1h, quoteVol8h, quoteVol1d float64
+
+		err := rows.Scan(
+			&m.Symbol,
+			&m.Timestamp,
+			&c1m.Open, &c1m.High, &c1m.Low, &c1m.Close, &c1m.Volume, &quoteVol1m,
+			&c5m.Open, &c5m.High, &c5m.Low, &c5m.Close, &c5m.Volume, &quoteVol5m,
+			&c15m.Open, &c15m.High, &c15m.Low, &c15m.Close, &c15m.Volume, &quoteVol15m,
+			&c1h.Open, &c1h.High, &c1h.Low, &c1h.Close, &c1h.Volume, &quoteVol1h,
+			&c8h.Open, &c8h.High, &c8h.Low, &c8h.Close, &c8h.Volume, &quoteVol8h,
+			&c1d.Open, &c1d.High, &c1d.Low, &c1d.Close, &c1d.Volume, &quoteVol1d,
+			&m.PriceChange5m, &m.PriceChange15m, &m.PriceChange1h, &m.PriceChange8h, &m.PriceChange1d,
+			&m.VolumeRatio5m, &m.VolumeRatio15m, &m.VolumeRatio1h, &m.VolumeRatio8h,
+			&m.VCP, &m.RSI,
+		)
+		if err != nil {
+			continue
+		}
+
+		m.LastPrice = c1m.Close
+		m.Candle1m = c1m
+		m.Candle5m = c5m
+		m.Candle15m = c15m
+		m.Candle1h = c1h
+		m.Candle8h = c8h
+		m.Candle1d = c1d
+
+		metricsSlice = append(metricsSlice, &m)
+	}
+
+	return metricsSlice, rows.Err()
 }
 
 func getEnv(key, defaultValue string) string {
