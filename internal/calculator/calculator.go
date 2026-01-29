@@ -1,11 +1,13 @@
 package calculator
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/bl8ckfz/crypto-screener-backend/internal/indicators"
 	"github.com/bl8ckfz/crypto-screener-backend/internal/ringbuffer"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
@@ -60,14 +62,86 @@ type MetricsCalculator struct {
 	buffers map[string]*ringbuffer.RingBuffer
 	mu      sync.RWMutex
 	logger  zerolog.Logger
+	pool    *pgxpool.Pool
 }
 
 // NewMetricsCalculator creates a new metrics calculator
-func NewMetricsCalculator(logger zerolog.Logger) *MetricsCalculator {
+func NewMetricsCalculator(logger zerolog.Logger, pool *pgxpool.Pool) *MetricsCalculator {
 	return &MetricsCalculator{
 		buffers: make(map[string]*ringbuffer.RingBuffer),
 		logger:  logger.With().Str("component", "metrics-calculator").Logger(),
+		pool:    pool,
 	}
+}
+
+// InitializeBufferFromDB loads historical candles from candles_1m table into ring buffer
+// This allows metrics like 8h and 1d to work immediately on startup instead of waiting 24 hours
+func (mc *MetricsCalculator) InitializeBufferFromDB(ctx context.Context, symbol string) error {
+	mc.mu.Lock()
+	// Check if buffer already exists and has data
+	if buffer, exists := mc.buffers[symbol]; exists && buffer.Size() > 0 {
+		mc.mu.Unlock()
+		mc.logger.Debug().
+			Str("symbol", symbol).
+			Int("size", buffer.Size()).
+			Msg("buffer already initialized, skipping DB load")
+		return nil
+	}
+	
+	// Create new buffer
+	buffer := ringbuffer.NewRingBuffer()
+	mc.buffers[symbol] = buffer
+	mc.mu.Unlock()
+
+	// Load last 1440 candles (24 hours) from database
+	query := `
+		SELECT time, symbol, open, high, low, close, volume, quote_volume, trades
+		FROM candles_1m
+		WHERE symbol = $1
+		ORDER BY time ASC
+		LIMIT 1440
+	`
+
+	rows, err := mc.pool.Query(ctx, query, symbol)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var candle ringbuffer.Candle
+		if err := rows.Scan(
+			&candle.OpenTime,
+			&candle.Symbol,
+			&candle.Open,
+			&candle.High,
+			&candle.Low,
+			&candle.Close,
+			&candle.Volume,
+			&candle.QuoteVolume,
+			&candle.NumberOfTrades,
+		); err != nil {
+			mc.logger.Error().Err(err).Str("symbol", symbol).Msg("failed to scan candle")
+			continue
+		}
+
+		buffer.Append(candle)
+		count++
+	}
+
+	if count > 0 {
+		mc.logger.Info().
+			Str("symbol", symbol).
+			Int("candles_loaded", count).
+			Msg("initialized ring buffer from database")
+	} else {
+		mc.logger.Debug().
+			Str("symbol", symbol).
+			Msg("no historical candles found in database")
+	}
+
+	return nil
 }
 
 // AddCandle adds a candle to the ring buffer and calculates metrics
@@ -77,9 +151,30 @@ func (mc *MetricsCalculator) AddCandle(candle ringbuffer.Candle) (*SymbolMetrics
 	// Get or create ring buffer for symbol
 	buffer, exists := mc.buffers[candle.Symbol]
 	if !exists {
-		buffer = ringbuffer.NewRingBuffer()
-		mc.buffers[candle.Symbol] = buffer
-		mc.logger.Debug().Str("symbol", candle.Symbol).Msg("created new ring buffer")
+		mc.mu.Unlock()
+		
+		// Initialize buffer from database (loads historical candles if available)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		if err := mc.InitializeBufferFromDB(ctx, candle.Symbol); err != nil {
+			mc.logger.Error().
+				Err(err).
+				Str("symbol", candle.Symbol).
+				Msg("failed to initialize buffer from database, creating empty buffer")
+			
+			// Create empty buffer as fallback
+			mc.mu.Lock()
+			mc.buffers[candle.Symbol] = ringbuffer.NewRingBuffer()
+			buffer = mc.buffers[candle.Symbol]
+			mc.mu.Unlock()
+		} else {
+			mc.mu.Lock()
+			buffer = mc.buffers[candle.Symbol]
+			mc.mu.Unlock()
+		}
+		
+		mc.mu.Lock()
 	}
 
 	// Add candle to buffer

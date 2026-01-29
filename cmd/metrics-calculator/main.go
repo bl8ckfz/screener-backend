@@ -99,8 +99,8 @@ func main() {
 		logger.Fatal("Failed to create METRICS stream", err)
 	}
 
-	// Initialize metrics calculator
-	calc := calculator.NewMetricsCalculator(logger.Zerolog())
+	// Initialize metrics calculator with database pool for buffer initialization
+	calc := calculator.NewMetricsCalculator(logger.Zerolog(), dbPool)
 
 	// Initialize metrics persister with batch writing (batch size: 50)
 	persister := calculator.NewMetricsPersister(dbPool, logger.Zerolog(), 50)
