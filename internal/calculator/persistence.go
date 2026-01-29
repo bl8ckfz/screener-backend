@@ -237,7 +237,7 @@ func (mp *MetricsPersister) PersistCandle(ctx context.Context, candle ringbuffer
 			time, symbol,
 			open, high, low, close,
 			volume, quote_volume,
-			number_of_trades
+			trades
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (time, symbol) DO UPDATE SET
 			open = EXCLUDED.open,
@@ -246,7 +246,7 @@ func (mp *MetricsPersister) PersistCandle(ctx context.Context, candle ringbuffer
 			close = EXCLUDED.close,
 			volume = EXCLUDED.volume,
 			quote_volume = EXCLUDED.quote_volume,
-			number_of_trades = EXCLUDED.number_of_trades
+			trades = EXCLUDED.trades
 	`
 
 	_, err := mp.pool.Exec(ctx, query,
